@@ -148,7 +148,7 @@ See the `LICENSE` file for the complete license text once it has been added to t
 
 - **Website:** https://waystonepanel.com
 - **Roadmap:** https://waystonepanel.com/roadmap
-- **GitHub mirror:** https://github.com/sharddevs/waystone-panel
+- **GitHub mirror:** https://github.com/sharddevs/waystone_panel
 - **Developer:** Shard Development
 
 ---
