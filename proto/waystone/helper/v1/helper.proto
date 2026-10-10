@@ -18,6 +18,18 @@ enum Action {
   ACTION_START = 1;
   ACTION_STOP = 2;
   ACTION_STATUS = 3;
+  // Create what the server needs from the machine: its own user, its
+  // directory and its service definition. Safe to repeat.
+  ACTION_PROVISION = 4;
+}
+
+// What a new server needs. Names and numbers only: the helper turns the
+// runtime name into a program path itself, from its own allowlist.
+message ProvisionSpec {
+  // A runtime name from the helper's allowlist, such as "java25".
+  string runtime = 1;
+  // Java heap size in MiB, used for both -Xms and -Xmx.
+  uint32 heap_mib = 2;
 }
 
 message Request {
@@ -27,6 +39,8 @@ message Request {
   // Canonical lowercase UUID of the game server.
   string server_id = 2;
   Action action = 3;
+  // Required for ACTION_PROVISION and refused for every other action.
+  ProvisionSpec provision = 4;
 }
 
 enum ErrorCode {
@@ -40,6 +54,9 @@ enum ErrorCode {
   ERROR_CODE_NOT_FOUND = 3;
   // The action was attempted and failed.
   ERROR_CODE_FAILED = 4;
+  // Something the action would create already exists and was not created
+  // by Waystone for this server. Nothing was changed.
+  ERROR_CODE_CONFLICT = 5;
 }
 
 // Run state as the panel understands it, independent of the runtime.
@@ -62,4 +79,7 @@ message Response {
   RunState run_state = 3;
   // The runtime's own description of the state, for diagnostics only.
   string native_state = 4;
+  // Set only for ACTION_PROVISION: true if this request changed anything
+  // on the machine, false if everything was already in place.
+  bool changed = 5;
 }

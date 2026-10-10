@@ -19,6 +19,7 @@ import (
 
 func main() {
 	agentUser := flag.String("agent-user", "waystone-agent", "the only user allowed to send requests")
+	role := flag.String("role", helper.RoleRuntime, "helper role: runtime or provision")
 	flag.Parse()
 	log.SetFlags(0) // journald adds timestamps
 
@@ -49,17 +50,18 @@ func main() {
 		log.Print("shutdown signal received")
 		listener.Close()
 	}()
-	systemd := helper.Systemd{
-		Runner: helper.ExecRunner{},
+	router, err := helper.NewRouter(*role, helper.ExecRunner{})
+	if err != nil {
+		log.Fatalf("cannot configure helper role: %v", err)
 	}
 
 	server := &helper.Server{
 		AgentUID: uint32(uid),
 		PeerCred: peerCred,
-		Handle:   systemd.Handle,
+		Handle:   router.Handle,
 		Log:      log.Default(),
 	}
-	log.Printf("waystone-helper ready; authorized agent user=%s uid=%d", *agentUser, uid)
+	log.Printf("waystone-helper ready; role=%s authorized agent user=%s uid=%d", *role, *agentUser, uid)
 
 	if err := server.Serve(listener); err != nil {
 		log.Fatalf("helper server failed: %v", err)

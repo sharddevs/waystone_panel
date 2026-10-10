@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The provisioning service: the same binary as waystone-helper in its
+# provision role. It writes unit files and nothing else. Accounts are made
+# by useradd in a transient unit it starts (internal/helper/accounts.go),
+# never in this process. The sandbox matches waystone-helper.service except
+# for the one ReadWritePaths= line.
+[Unit]
+Description=Waystone provisioning service
+Requires=waystone-provisioner.socket
+After=waystone-provisioner.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/waystone-helper -role=provision -agent-user=waystone-agent
+ReadWritePaths=/etc/systemd/system
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077

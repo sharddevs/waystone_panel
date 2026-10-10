@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The provisioning service's socket. Same rules as waystone-helper.socket:
+# root:waystone-agent 0660, created before the service runs.
+[Unit]
+Description=Waystone provisioning service socket
+
+[Socket]
+ListenStream=/run/waystone-provisioner/provisioner.sock
+SocketUser=root
+SocketGroup=waystone-agent
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+
+[Install]
+WantedBy=sockets.target

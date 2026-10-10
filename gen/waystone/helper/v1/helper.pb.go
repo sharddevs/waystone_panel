@@ -38,6 +38,9 @@ const (
 	Action_ACTION_START       Action = 1
 	Action_ACTION_STOP        Action = 2
 	Action_ACTION_STATUS      Action = 3
+	// Create what the server needs from the machine: its own user, its
+	// directory and its service definition. Safe to repeat.
+	Action_ACTION_PROVISION Action = 4
 )
 
 // Enum value maps for Action.
@@ -47,12 +50,14 @@ var (
 		1: "ACTION_START",
 		2: "ACTION_STOP",
 		3: "ACTION_STATUS",
+		4: "ACTION_PROVISION",
 	}
 	Action_value = map[string]int32{
 		"ACTION_UNSPECIFIED": 0,
 		"ACTION_START":       1,
 		"ACTION_STOP":        2,
 		"ACTION_STATUS":      3,
+		"ACTION_PROVISION":   4,
 	}
 )
 
@@ -96,6 +101,9 @@ const (
 	ErrorCode_ERROR_CODE_NOT_FOUND ErrorCode = 3
 	// The action was attempted and failed.
 	ErrorCode_ERROR_CODE_FAILED ErrorCode = 4
+	// Something the action would create already exists and was not created
+	// by Waystone for this server. Nothing was changed.
+	ErrorCode_ERROR_CODE_CONFLICT ErrorCode = 5
 )
 
 // Enum value maps for ErrorCode.
@@ -106,6 +114,7 @@ var (
 		2: "ERROR_CODE_INVALID_REQUEST",
 		3: "ERROR_CODE_NOT_FOUND",
 		4: "ERROR_CODE_FAILED",
+		5: "ERROR_CODE_CONFLICT",
 	}
 	ErrorCode_value = map[string]int32{
 		"ERROR_CODE_UNSPECIFIED":       0,
@@ -113,6 +122,7 @@ var (
 		"ERROR_CODE_INVALID_REQUEST":   2,
 		"ERROR_CODE_NOT_FOUND":         3,
 		"ERROR_CODE_FAILED":            4,
+		"ERROR_CODE_CONFLICT":          5,
 	}
 )
 
@@ -204,21 +214,79 @@ func (RunState) EnumDescriptor() ([]byte, []int) {
 	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{2}
 }
 
+// What a new server needs. Names and numbers only: the helper turns the
+// runtime name into a program path itself, from its own allowlist.
+type ProvisionSpec struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A runtime name from the helper's allowlist, such as "java25".
+	Runtime string `protobuf:"bytes,1,opt,name=runtime,proto3" json:"runtime,omitempty"`
+	// Java heap size in MiB, used for both -Xms and -Xmx.
+	HeapMib       uint32 `protobuf:"varint,2,opt,name=heap_mib,json=heapMib,proto3" json:"heap_mib,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProvisionSpec) Reset() {
+	*x = ProvisionSpec{}
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProvisionSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProvisionSpec) ProtoMessage() {}
+
+func (x *ProvisionSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProvisionSpec.ProtoReflect.Descriptor instead.
+func (*ProvisionSpec) Descriptor() ([]byte, []int) {
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ProvisionSpec) GetRuntime() string {
+	if x != nil {
+		return x.Runtime
+	}
+	return ""
+}
+
+func (x *ProvisionSpec) GetHeapMib() uint32 {
+	if x != nil {
+		return x.HeapMib
+	}
+	return 0
+}
+
 type Request struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Canonical lowercase UUID of the operation this request belongs to.
 	// The helper logs it, so every root action can be traced to an operation.
 	OperationId string `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
 	// Canonical lowercase UUID of the game server.
-	ServerId      string `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
-	Action        Action `protobuf:"varint,3,opt,name=action,proto3,enum=waystone.helper.v1.Action" json:"action,omitempty"`
+	ServerId string `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	Action   Action `protobuf:"varint,3,opt,name=action,proto3,enum=waystone.helper.v1.Action" json:"action,omitempty"`
+	// Required for ACTION_PROVISION and refused for every other action.
+	Provision     *ProvisionSpec `protobuf:"bytes,4,opt,name=provision,proto3" json:"provision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Request) Reset() {
 	*x = Request{}
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[0]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -230,7 +298,7 @@ func (x *Request) String() string {
 func (*Request) ProtoMessage() {}
 
 func (x *Request) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[0]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -243,7 +311,7 @@ func (x *Request) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Request.ProtoReflect.Descriptor instead.
 func (*Request) Descriptor() ([]byte, []int) {
-	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{0}
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Request) GetOperationId() string {
@@ -267,6 +335,13 @@ func (x *Request) GetAction() Action {
 	return Action_ACTION_UNSPECIFIED
 }
 
+func (x *Request) GetProvision() *ProvisionSpec {
+	if x != nil {
+		return x.Provision
+	}
+	return nil
+}
+
 type Response struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	ErrorCode ErrorCode              `protobuf:"varint,1,opt,name=error_code,json=errorCode,proto3,enum=waystone.helper.v1.ErrorCode" json:"error_code,omitempty"`
@@ -275,14 +350,17 @@ type Response struct {
 	// Set only for ACTION_STATUS.
 	RunState RunState `protobuf:"varint,3,opt,name=run_state,json=runState,proto3,enum=waystone.helper.v1.RunState" json:"run_state,omitempty"`
 	// The runtime's own description of the state, for diagnostics only.
-	NativeState   string `protobuf:"bytes,4,opt,name=native_state,json=nativeState,proto3" json:"native_state,omitempty"`
+	NativeState string `protobuf:"bytes,4,opt,name=native_state,json=nativeState,proto3" json:"native_state,omitempty"`
+	// Set only for ACTION_PROVISION: true if this request changed anything
+	// on the machine, false if everything was already in place.
+	Changed       bool `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[1]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -294,7 +372,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[1]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -307,7 +385,7 @@ func (x *Response) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Response.ProtoReflect.Descriptor instead.
 func (*Response) Descriptor() ([]byte, []int) {
-	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{1}
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Response) GetErrorCode() ErrorCode {
@@ -338,32 +416,46 @@ func (x *Response) GetNativeState() string {
 	return ""
 }
 
+func (x *Response) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
 var File_waystone_helper_v1_helper_proto protoreflect.FileDescriptor
 
 const file_waystone_helper_v1_helper_proto_rawDesc = "" +
 	"\n" +
-	"\x1fwaystone/helper/v1/helper.proto\x12\x12waystone.helper.v1\"}\n" +
+	"\x1fwaystone/helper/v1/helper.proto\x12\x12waystone.helper.v1\"D\n" +
+	"\rProvisionSpec\x12\x18\n" +
+	"\aruntime\x18\x01 \x01(\tR\aruntime\x12\x19\n" +
+	"\bheap_mib\x18\x02 \x01(\rR\aheapMib\"\xbe\x01\n" +
 	"\aRequest\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12\x1b\n" +
 	"\tserver_id\x18\x02 \x01(\tR\bserverId\x122\n" +
-	"\x06action\x18\x03 \x01(\x0e2\x1a.waystone.helper.v1.ActionR\x06action\"\xcb\x01\n" +
+	"\x06action\x18\x03 \x01(\x0e2\x1a.waystone.helper.v1.ActionR\x06action\x12?\n" +
+	"\tprovision\x18\x04 \x01(\v2!.waystone.helper.v1.ProvisionSpecR\tprovision\"\xe5\x01\n" +
 	"\bResponse\x12<\n" +
 	"\n" +
 	"error_code\x18\x01 \x01(\x0e2\x1d.waystone.helper.v1.ErrorCodeR\terrorCode\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x129\n" +
 	"\trun_state\x18\x03 \x01(\x0e2\x1c.waystone.helper.v1.RunStateR\brunState\x12!\n" +
-	"\fnative_state\x18\x04 \x01(\tR\vnativeState*V\n" +
+	"\fnative_state\x18\x04 \x01(\tR\vnativeState\x12\x18\n" +
+	"\achanged\x18\x05 \x01(\bR\achanged*l\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fACTION_START\x10\x01\x12\x0f\n" +
 	"\vACTION_STOP\x10\x02\x12\x11\n" +
-	"\rACTION_STATUS\x10\x03*\x9a\x01\n" +
+	"\rACTION_STATUS\x10\x03\x12\x14\n" +
+	"\x10ACTION_PROVISION\x10\x04*\xb3\x01\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cERROR_CODE_PERMISSION_DENIED\x10\x01\x12\x1e\n" +
 	"\x1aERROR_CODE_INVALID_REQUEST\x10\x02\x12\x18\n" +
 	"\x14ERROR_CODE_NOT_FOUND\x10\x03\x12\x15\n" +
-	"\x11ERROR_CODE_FAILED\x10\x04*\x99\x01\n" +
+	"\x11ERROR_CODE_FAILED\x10\x04\x12\x17\n" +
+	"\x13ERROR_CODE_CONFLICT\x10\x05*\x99\x01\n" +
 	"\bRunState\x12\x19\n" +
 	"\x15RUN_STATE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11RUN_STATE_STOPPED\x10\x01\x12\x16\n" +
@@ -385,23 +477,25 @@ func file_waystone_helper_v1_helper_proto_rawDescGZIP() []byte {
 }
 
 var file_waystone_helper_v1_helper_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_waystone_helper_v1_helper_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_waystone_helper_v1_helper_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_waystone_helper_v1_helper_proto_goTypes = []any{
-	(Action)(0),      // 0: waystone.helper.v1.Action
-	(ErrorCode)(0),   // 1: waystone.helper.v1.ErrorCode
-	(RunState)(0),    // 2: waystone.helper.v1.RunState
-	(*Request)(nil),  // 3: waystone.helper.v1.Request
-	(*Response)(nil), // 4: waystone.helper.v1.Response
+	(Action)(0),           // 0: waystone.helper.v1.Action
+	(ErrorCode)(0),        // 1: waystone.helper.v1.ErrorCode
+	(RunState)(0),         // 2: waystone.helper.v1.RunState
+	(*ProvisionSpec)(nil), // 3: waystone.helper.v1.ProvisionSpec
+	(*Request)(nil),       // 4: waystone.helper.v1.Request
+	(*Response)(nil),      // 5: waystone.helper.v1.Response
 }
 var file_waystone_helper_v1_helper_proto_depIdxs = []int32{
 	0, // 0: waystone.helper.v1.Request.action:type_name -> waystone.helper.v1.Action
-	1, // 1: waystone.helper.v1.Response.error_code:type_name -> waystone.helper.v1.ErrorCode
-	2, // 2: waystone.helper.v1.Response.run_state:type_name -> waystone.helper.v1.RunState
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	3, // 1: waystone.helper.v1.Request.provision:type_name -> waystone.helper.v1.ProvisionSpec
+	1, // 2: waystone.helper.v1.Response.error_code:type_name -> waystone.helper.v1.ErrorCode
+	2, // 3: waystone.helper.v1.Response.run_state:type_name -> waystone.helper.v1.RunState
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_waystone_helper_v1_helper_proto_init() }
@@ -415,7 +509,7 @@ func file_waystone_helper_v1_helper_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_waystone_helper_v1_helper_proto_rawDesc), len(file_waystone_helper_v1_helper_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

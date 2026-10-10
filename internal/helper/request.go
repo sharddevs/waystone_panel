@@ -17,6 +17,7 @@ type Command struct {
 	OperationID string
 	ServerID    string
 	Action      helperv1.Action
+	Spec        Spec
 }
 
 // ErrInvalidRequest wraps every validation failure.
@@ -45,10 +46,24 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 	if err := ids.Check(req.GetServerId()); err != nil {
 		return Command{}, fmt.Errorf("%w: invalid server ID: %v", ErrInvalidRequest, err)
 	}
+	var spec Spec
 	switch req.GetAction() {
 	case helperv1.Action_ACTION_START,
 		helperv1.Action_ACTION_STOP,
 		helperv1.Action_ACTION_STATUS:
+		if req.GetProvision() != nil {
+			return Command{}, fmt.Errorf("%w: unexpected provision spec", ErrInvalidRequest)
+		}
+	case helperv1.Action_ACTION_PROVISION:
+		if req.GetProvision() == nil {
+			return Command{}, fmt.Errorf("%w: missing provision spec", ErrInvalidRequest)
+		}
+		var err error
+		spec, err = ValidateSpec(req.GetProvision())
+		if err != nil {
+			return Command{}, err
+		}
+
 	default:
 		return Command{}, fmt.Errorf("%w: unsupported action", ErrInvalidRequest)
 	}
@@ -56,6 +71,7 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 		OperationID: req.GetOperationId(),
 		ServerID:    req.GetServerId(),
 		Action:      req.GetAction(),
+		Spec:        spec,
 	}, nil
 }
 

@@ -24,6 +24,7 @@ type Runtime interface {
 	Start(ctx context.Context, serverID, operationID string) error
 	Stop(ctx context.Context, serverID, operationID string) error
 	Status(ctx context.Context, serverID, operationID string) (Status, error)
+	Provision(ctx context.Context, serverID, operationID string, spec ProvisionSpec) (bool, error)
 }
 
 // Errors returned for the helper's error codes.
@@ -37,7 +38,8 @@ var (
 // HelperRuntime is the native systemd runtime. Every action goes through
 // the privileged helper; the agent itself never touches systemd.
 type HelperRuntime struct {
-	Client helper.Client
+	Client      helper.Client
+	Provisioner helper.Client
 }
 
 var _ Runtime = HelperRuntime{}
@@ -50,16 +52,29 @@ var _ Runtime = HelperRuntime{}
 //     ErrFailed, including the helper's error_message.
 //   - Any code this agent does not know: ErrFailed. Never treat an unknown
 //     answer as success.
-func (h HelperRuntime) do(ctx context.Context, action helperv1.Action, serverID, operationID string) (*helperv1.Response, error) {
+func (h HelperRuntime) do(
+	ctx context.Context,
+	action helperv1.Action,
+	serverID, operationID string,
+) (*helperv1.Response, error) {
 	req := &helperv1.Request{
 		OperationId: operationID,
 		ServerId:    serverID,
 		Action:      action,
 	}
-	resp, err := h.Client.Do(ctx, req)
+
+	return h.send(ctx, h.Client, req)
+}
+func (h HelperRuntime) send(
+	ctx context.Context,
+	client helper.Client,
+	req *helperv1.Request,
+) (*helperv1.Response, error) {
+	resp, err := client.Do(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("could not reach helper: %w", err)
 	}
+
 	switch resp.GetErrorCode() {
 	case helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED:
 		return resp, nil
@@ -73,6 +88,9 @@ func (h HelperRuntime) do(ctx context.Context, action helperv1.Action, serverID,
 
 	case helperv1.ErrorCode_ERROR_CODE_NOT_FOUND:
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, resp.GetErrorMessage())
+
+	case helperv1.ErrorCode_ERROR_CODE_CONFLICT:
+		return nil, fmt.Errorf("%w: %s", ErrConflict, resp.GetErrorMessage())
 
 	case helperv1.ErrorCode_ERROR_CODE_FAILED:
 		return nil, fmt.Errorf("%w: %s", ErrFailed, resp.GetErrorMessage())

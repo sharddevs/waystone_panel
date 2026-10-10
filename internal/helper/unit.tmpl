@@ -1,0 +1,48 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */ -}}
+# Managed by Waystone. Do not edit: provisioning rewrites this file.
+[Unit]
+Description=Waystone game server {{.ServerID}}
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{.User}}
+Group={{.User}}
+# systemd creates /var/lib/waystone/servers/<id> on first start, owned by
+# User= with mode 0750. Nothing in Waystone chowns it as root.
+StateDirectory=waystone/servers/{{.ServerID}}
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/waystone/servers/{{.ServerID}}
+ExecStart={{.Java}} -Xms{{.HeapMiB}}M -Xmx{{.HeapMiB}}M -jar server.jar nogui
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=60s
+# Java exits with 143 when systemd stops it with SIGTERM. That is a stop,
+# not a failure.
+SuccessExitStatus=143
+# The heap plus room for the JVM itself.
+MemoryMax={{.MemoryMaxMiB}}M
+UMask=0027
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
