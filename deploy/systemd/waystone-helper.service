@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The privileged helper runs as root only because managing other services
+# needs it. Everything below takes away what it does not need.
+[Unit]
+Description=Waystone privileged helper
+Requires=waystone-helper.socket
+After=waystone-helper.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/waystone-helper -agent-user=waystone-agent
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077

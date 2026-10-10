@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The helper's socket. systemd creates it with these permissions before the
+# helper runs, so there is never a moment when it is reachable by others.
+[Unit]
+Description=Waystone privileged helper socket
+
+[Socket]
+ListenStream=/run/waystone-helper/helper.sock
+SocketUser=root
+SocketGroup=waystone-agent
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+
+[Install]
+WantedBy=sockets.target

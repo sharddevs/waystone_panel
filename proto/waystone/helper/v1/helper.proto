@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+syntax = "proto3";
+
+// Protocol between the unprivileged Waystone agent and the root privileged
+// helper on the same machine. One Request and one Response per connection.
+//
+// Everything in a Request is controlled by the agent, which we must assume
+// can be compromised. The helper therefore validates every field and never
+// accepts paths, user names or unit names: it derives those from the server
+// ID itself. Nothing in this file is specific to Linux or systemd.
+package waystone.helper.v1;
+
+option go_package = "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1;helperv1";
+
+enum Action {
+  ACTION_UNSPECIFIED = 0;
+  ACTION_START = 1;
+  ACTION_STOP = 2;
+  ACTION_STATUS = 3;
+}
+
+message Request {
+  // Canonical lowercase UUID of the operation this request belongs to.
+  // The helper logs it, so every root action can be traced to an operation.
+  string operation_id = 1;
+  // Canonical lowercase UUID of the game server.
+  string server_id = 2;
+  Action action = 3;
+}
+
+enum ErrorCode {
+  // Success.
+  ERROR_CODE_UNSPECIFIED = 0;
+  // The caller is not the agent.
+  ERROR_CODE_PERMISSION_DENIED = 1;
+  // The request failed validation.
+  ERROR_CODE_INVALID_REQUEST = 2;
+  // The server is not known to this machine.
+  ERROR_CODE_NOT_FOUND = 3;
+  // The action was attempted and failed.
+  ERROR_CODE_FAILED = 4;
+}
+
+// Run state as the panel understands it, independent of the runtime.
+enum RunState {
+  RUN_STATE_UNSPECIFIED = 0;
+  RUN_STATE_STOPPED = 1;
+  RUN_STATE_STARTING = 2;
+  RUN_STATE_RUNNING = 3;
+  RUN_STATE_STOPPING = 4;
+  // Stopped because something went wrong (crash, failed start), as opposed
+  // to a deliberate stop.
+  RUN_STATE_FAILED = 5;
+}
+
+message Response {
+  ErrorCode error_code = 1;
+  // Human-readable detail for logs. Never shown as-is to tenants.
+  string error_message = 2;
+  // Set only for ACTION_STATUS.
+  RunState run_state = 3;
+  // The runtime's own description of the state, for diagnostics only.
+  string native_state = 4;
+}
