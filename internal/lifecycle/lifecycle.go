@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 	"github.com/sharddevs/waystone_panel/internal/helper"
@@ -67,7 +68,8 @@ func (h HelperRuntime) do(ctx context.Context, action helperv1.Action, serverID,
 		return nil, fmt.Errorf("%w: %s", ErrPermissionDenied, resp.GetErrorMessage())
 
 	case helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST:
-		return nil, fmt.Errorf("%w: %s", ErrInvalidRequest, resp.GetErrorMessage())
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRequest,
+			strings.TrimPrefix(resp.GetErrorMessage(), "invalid request: "))
 
 	case helperv1.ErrorCode_ERROR_CODE_NOT_FOUND:
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, resp.GetErrorMessage())

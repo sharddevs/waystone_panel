@@ -136,7 +136,7 @@ func (s *Server) serveConn(conn net.Conn) {
 	if err != nil {
 		resp := &helperv1.Response{
 			ErrorCode:    helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST,
-			ErrorMessage: "invalid request",
+			ErrorMessage: err.Error(),
 		}
 
 		if writeErr := WriteFrame(conn, resp); writeErr != nil {
