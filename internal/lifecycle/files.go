@@ -12,15 +12,17 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/worker"
 )
 
-// File is one small file in a server's directory, as the node read it.
+// File is a small file in a server's directory, as it was when we read it.
 // Pass it back to WriteFile as the base of a read-modify-write.
 type File struct {
 	Exists  bool
 	Content []byte
 }
 
-// Expect is what WriteFile requires of the file on disk when f is the
-// base: absent if f didn't exist, otherwise exactly f's content.
+// Expect returns what the file on disk must look like for a write based on
+// f to go through: absent if f didn't exist, otherwise f's exact content.
+// It's the content's SHA-256 rather than a timestamp: if someone edits the
+// file and then undoes it, there's nothing to lose by writing.
 func (f File) Expect() worker.Expect {
 	if !f.Exists {
 		return worker.Expect{
@@ -35,15 +37,12 @@ func (f File) Expect() worker.Expect {
 	}
 }
 
-// ErrChanged is returned for the helper's ERROR_CODE_CHANGED: the file is
-// no longer what was read. Nothing was written. Read again and decide again.
+// ErrChanged means the file is no longer what was read, so nothing was
+// written. The caller should read it again and decide again.
 var ErrChanged = errors.New("file changed since it was read")
 
-// ReadFile implements Runtime. It sends ACTION_READ_FILE with a FileSpec
-// holding only the name, through h.Provisioner (the worker is started by
-// the provisioning service, never by the runtime helper), with the same
-// error mapping as Provision (send). It returns the response's FileResult.
-// A response without a FileResult is an error, never a missing file.
+// ReadFile implements Runtime. File actions go to the provisioning service,
+// because that is what starts the worker that actually reads the file.
 func (h HelperRuntime) ReadFile(ctx context.Context, serverID, operationID, name string) (File, error) {
 	req := &helperv1.Request{
 		OperationId: operationID,
@@ -60,6 +59,8 @@ func (h HelperRuntime) ReadFile(ctx context.Context, serverID, operationID, name
 	}
 
 	result := resp.GetFile()
+	// No result at all is a broken answer. Reading it as "file doesn't
+	// exist" could let a later write clobber a real file.
 	if result == nil {
 		return File{}, fmt.Errorf("%w: helper returned no file result", ErrFailed)
 	}
@@ -70,12 +71,10 @@ func (h HelperRuntime) ReadFile(ctx context.Context, serverID, operationID, name
 	}, nil
 }
 
-// WriteFile implements Runtime. It sends ACTION_WRITE_FILE through
-// h.Provisioner, with content and base's expectation: expect_absent if
-// base doesn't exist, otherwise expect_sha256 of base's content (the
-// 32 bytes of base.Expect().SHA256). The agent never validates the name or
-// the size itself: the helper and the worker do, and a refusal comes back
-// as ErrInvalidRequest.
+// WriteFile implements Runtime. It writes content only if the file still
+// matches base, otherwise it returns ErrChanged. The name and size are
+// checked by the helper and the worker, not here; a bad one comes back as
+// ErrInvalidRequest.
 func (h HelperRuntime) WriteFile(
 	ctx context.Context,
 	serverID, operationID, name string,

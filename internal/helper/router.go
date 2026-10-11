@@ -9,23 +9,18 @@ import (
 )
 
 // Router sends each validated command to the code that performs it. A nil
-// field means this service does not perform those actions at all: the
-// runtime helper has no Provisioner, the provisioning service no Systemd.
+// field means this service doesn't perform those actions at all: the
+// runtime helper has no Provisioner or Worker, the provisioning service no
+// Systemd.
 type Router struct {
 	Systemd     *Systemd
 	Provisioner *Provisioner
 	Worker      *Worker
 }
 
-// Handle implements Server.Handle.
-//   - ACTION_PROVISION with r.Provisioner set: call Provision with
-//     cmd.ServerID and cmd.Spec. Success: ERROR_CODE_UNSPECIFIED with
-//     changed set. ErrConflict: ERROR_CODE_CONFLICT. ErrInvalidRequest:
-//     ERROR_CODE_INVALID_REQUEST. Anything else: ERROR_CODE_FAILED.
-//   - START, STOP, STATUS with r.Systemd set: r.Systemd.Handle, unchanged.
-//   - An action whose field is nil: ERROR_CODE_INVALID_REQUEST, and nothing
-//     else happens.
-//   - Every error response has a non-empty error_message.
+// Handle has the signature of Server.Handle. An action this service
+// doesn't perform is answered with ERROR_CODE_INVALID_REQUEST and nothing
+// runs.
 func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 	if cmd.Action == helperv1.Action_ACTION_PROVISION {
 		if r.Provisioner == nil {
@@ -126,13 +121,8 @@ const (
 	RoleProvision = "provision" // waystone-provisioner.service: PROVISION, READ_FILE, WRITE_FILE
 )
 
-// NewRouter returns the Router for a role.
-//   - RoleRuntime: only Systemd is set, as Systemd{Runner: runner}.
-//   - RoleProvision: only Provisioner is set, with
-//     Accounts SystemAccounts{Runner: runner},
-//     Units UnitFiles{Dir: DefaultUnitDir}, Runner runner and
-//     Runtimes DefaultRuntimes.
-//   - Any other role: an error naming the role. The helper must not start.
+// NewRouter returns the production Router for a role. An unknown role is
+// an error, and the helper should not start.
 func NewRouter(role string, runner Runners) (Router, error) {
 	switch role {
 	case RoleRuntime:
@@ -166,7 +156,8 @@ func NewRouter(role string, runner Runners) (Router, error) {
 	return Router{}, fmt.Errorf("unknown helper role %q", role)
 }
 
-// fileErrorResponse maps a file worker error to a helper response.
+// fileErrorResponse turns an error from the Worker into a response with
+// the matching error code.
 func fileErrorResponse(err error) *helperv1.Response {
 	code := helperv1.ErrorCode_ERROR_CODE_FAILED
 

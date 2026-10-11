@@ -58,7 +58,6 @@ func TestParseExpect(t *testing.T) {
 	}
 }
 
-// The zero Expect must never match a file that exists or a missing one.
 func TestZeroExpectMatchesNothing(t *testing.T) {
 	var zero Expect
 	if zero.Absent || zero == ExpectContent(nil) || zero.SHA256 == sha256.Sum256([]byte{}) {

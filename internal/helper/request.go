@@ -1,6 +1,3 @@
-// Package helper holds the privileged helper's protocol handling: framing,
-// request validation, caller authorization and the systemd actions.
-// The code here is OS-neutral; only cmd/waystone-helper is Linux-only.
 package helper
 
 import (
@@ -24,20 +21,16 @@ type Command struct {
 // ErrInvalidRequest wraps every validation failure.
 var ErrInvalidRequest = errors.New("invalid request")
 
-// ValidateRequest checks every field of req and returns the Command it asks for.
-//
-// Refuse (with an error that wraps ErrInvalidRequest; use fmt.Errorf with %w):
-//   - a nil request;
-//   - unknown fields. Protobuf normally keeps fields it does not know, which
-//     is right for data but wrong for a security boundary: a newer agent's
-//     extra field could be a restriction this helper would silently drop.
-//     Look at req.ProtoReflect().GetUnknown();
-//   - an operation_id or server_id that fails ids.Check;
-//   - any action other than START, STOP or STATUS.
+// ValidateRequest checks every field of req and returns the Command it asks
+// for. Each action must carry its own spec and nothing else. Errors wrap
+// ErrInvalidRequest (fmt.Errorf with %w, so errors.Is still finds it).
 func ValidateRequest(req *helperv1.Request) (Command, error) {
 	if req == nil {
 		return Command{}, fmt.Errorf("%w: nil request", ErrInvalidRequest)
 	}
+	// Protobuf quietly keeps fields it doesn't know. That's wrong at a
+	// security boundary: a newer agent's extra field could be a restriction
+	// we would silently ignore, so we refuse instead.
 	if len(req.ProtoReflect().GetUnknown()) != 0 {
 		return Command{}, fmt.Errorf("%w: unknown protobuf fields", ErrInvalidRequest)
 	}
@@ -109,9 +102,9 @@ type PeerCred struct {
 // ErrPermissionDenied is returned by Authorize.
 var ErrPermissionDenied = errors.New("permission denied")
 
-// Authorize allows only the agent's user, by uid. Group membership does
-// not count. A zero agentUID is a misconfiguration and must allow nobody,
-// not every root process. Errors wrap ErrPermissionDenied.
+// Authorize allows only the agent's user, by uid. Group membership doesn't
+// count. A zero agentUID is a misconfiguration, so it allows nobody rather
+// than every root process. Errors wrap ErrPermissionDenied.
 func Authorize(peer PeerCred, agentUID uint32) error {
 	if agentUID == 0 || peer.UID != agentUID {
 		return fmt.Errorf("%w: unauthorized caller", ErrPermissionDenied)
@@ -120,8 +113,8 @@ func Authorize(peer PeerCred, agentUID uint32) error {
 	return nil
 }
 
-// UnitName is the systemd unit of a server: "waystone-srv-<id>.service".
-// serverID must already have passed validation.
+// UnitName returns the systemd unit of a server, "waystone-srv-<id>.service".
+// serverID must already be validated.
 func UnitName(serverID string) string {
 	return "waystone-srv-" + serverID + ".service"
 }

@@ -1,3 +1,5 @@
+// Command controller runs the Waystone controller. For now it only serves
+// /healthz on localhost.
 package main
 
 import (
@@ -8,6 +10,10 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/api"
 )
 
+// newServer is split out of main so the tests can check its settings
+// without starting a listener. It listens on loopback only for now, and
+// ReadHeaderTimeout stops a client from holding a connection open by
+// sending its headers very slowly.
 func newServer(version string) *http.Server {
 
 	return &http.Server{

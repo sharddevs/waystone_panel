@@ -14,19 +14,16 @@ type UnitFiles struct {
 	Dir string
 }
 
-// path is where the server's unit file lives.
 func (u UnitFiles) path(serverID string) string {
 	return filepath.Join(u.Dir, UnitName(serverID))
 }
 
-// Check implements Units.
-//   - Use os.Lstat, which does not follow symlinks. A missing file is fine
-//     (return nil).
-//   - Anything that is not a regular file (a symlink, a directory) is
-//     ErrConflict.
-//   - A regular file that does not start with UnitMarker is ErrConflict:
-//     someone wrote it by hand, like your 3a copy of mclab.service.
+// Check implements Units. A missing file is fine. Anything that isn't a
+// regular file starting with UnitMarker was not written by us, so it is
+// ErrConflict.
 func (u UnitFiles) Check(serverID string) error {
+	// Lstat doesn't follow symlinks, so a symlink shows up as one and is
+	// refused below instead of us reading whatever it points at.
 	info, err := os.Lstat(u.path(serverID))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -47,15 +44,9 @@ func (u UnitFiles) Check(serverID string) error {
 	return nil
 }
 
-// Write implements Units.
-//   - Run the same checks as Check first.
-//   - If the file already holds exactly content, change nothing and
-//     return false.
-//   - Otherwise write atomically, so systemd never reads half a file:
-//     os.CreateTemp in Dir (same file system, so rename is atomic), write,
-//     Chmod 0644 (the helper's umask is 0077, so the mode must be set
-//     explicitly), Sync, Close, then os.Rename over the unit's path.
-//   - On any error remove the temporary file. Never leave one behind.
+// Write implements Units. If the file already holds exactly content it
+// changes nothing. Otherwise it writes a temp file and renames it into
+// place, so systemd never sees half a unit file.
 func (u UnitFiles) Write(serverID string, content []byte) (bool, error) {
 	if err := u.Check(serverID); err != nil {
 		return false, err
@@ -68,15 +59,20 @@ func (u UnitFiles) Write(serverID string, content []byte) (bool, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
+	// The temp file must be in the same directory (same file system),
+	// otherwise the rename isn't atomic.
 	tmp, err := os.CreateTemp(u.Dir, ".waystone-unit-*")
 	if err != nil {
 		return false, err
 	}
+	// Deferred calls run on every return. After a successful rename the
+	// Remove just fails quietly, since the temp name is gone.
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 	if _, err := tmp.Write(content); err != nil {
 		return false, err
 	}
+	// The helper runs with umask 0077, so set the mode ourselves.
 	if err := tmp.Chmod(0644); err != nil {
 		return false, err
 	}

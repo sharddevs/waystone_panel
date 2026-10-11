@@ -18,18 +18,16 @@ import (
 // Where the worker binary is installed, and its limits.
 const (
 	WorkerPath = "/usr/local/libexec/waystone-worker"
-	// WorkerRuntimeMaxSec stops a hung worker. Writing a properties file
-	// takes milliseconds; 3c-2's jar copy takes seconds. It must stay below
-	// ConnTimeout, so systemd stops a hung worker before the helper gives
-	// up on the request and the agent is told it failed.
+	// WorkerRuntimeMaxSec lets systemd kill a hung worker. It stays below
+	// ConnTimeout so the worker is stopped before the helper gives up on the
+	// request, and the agent is told it failed.
 	WorkerRuntimeMaxSec = 50
 )
 
 // WorkerProperties is the worker's sandbox, on top of the per-server
-// properties WorkerCommand adds. Stricter than the game's own unit: no
-// network at all (its input comes on stdin), and no writable or executable
-// memory. This list is part of the security review. Only ever make it
-// stricter.
+// properties WorkerCommand adds. It's stricter than the game's own unit: no
+// network at all (its input comes on stdin) and no writable and executable
+// memory. This list is a security boundary, so it should only get stricter.
 var WorkerProperties = []string{
 	"ProtectSystem=strict",
 	"ProtectHome=yes",
@@ -60,9 +58,8 @@ var WorkerProperties = []string{
 var ErrNotProvisioned = errors.New("server is not provisioned on this machine")
 
 // ValidateServerUser returns nil if name has exactly the shape ServerUser
-// produces: "ws-" and 12 lowercase hex digits. Otherwise an error wrapping
-// ErrInvalidRequest. (SystemAccounts.Create checks the same shape; make it
-// call this.)
+// produces: "ws-" and 12 lowercase hex digits. Errors wrap
+// ErrInvalidRequest.
 func ValidateServerUser(name string) error {
 	if len(name) != 15 || !strings.HasPrefix(name, "ws-") {
 		return fmt.Errorf("%w: invalid server username", ErrInvalidRequest)
@@ -78,24 +75,11 @@ func ValidateServerUser(name string) error {
 }
 
 // WorkerCommand builds the systemd-run command line that runs the worker
-// once, as user, inside server serverID's directory. Exact argv:
+// once, as user, inside server serverID's directory.
 //
-//	/usr/bin/systemd-run --wait --collect --quiet --pipe --service-type=exec
-//	    --unit=waystone-op-<operationID>.service
-//	    -p User=<user> -p Group=<user>
-//	    -p StateDirectory=waystone/servers/<serverID> -p StateDirectoryMode=0750
-//	    -p WorkingDirectory=/var/lib/waystone/servers/<serverID>
-//	    -p RuntimeMaxSec=<WorkerRuntimeMaxSec>
-//	    -p <entry> ... (each WorkerProperties entry, in order)
-//	    -- /usr/local/libexec/waystone-worker <args...>
-//
-// Rules:
-//   - serverID and operationID must pass ids.Check, and user must pass
-//     ValidateServerUser. Otherwise an error wrapping ErrInvalidRequest and
-//     no command. This is what keeps the worker from ever running as root
-//     or in another server's directory.
-//   - StateDirectory= is the same as in the game's unit, so systemd creates
-//     the directory, owned by user, if the game has never started.
+// Every input is validated first (errors wrap ErrInvalidRequest). That is
+// what keeps the worker from ever running as root or in another server's
+// directory.
 func WorkerCommand(serverID, operationID, user string, args ...string) ([]string, error) {
 	if err := ids.Check(serverID); err != nil {
 		return nil, fmt.Errorf("%w: invalid server ID: %v", ErrInvalidRequest, err)
@@ -120,6 +104,8 @@ func WorkerCommand(serverID, operationID, user string, args ...string) ([]string
 
 		"-p", "User=" + user,
 		"-p", "Group=" + user,
+		// Same StateDirectory= as the game's unit, so systemd creates the
+		// directory, owned by user, even if the game has never started.
 		"-p", "StateDirectory=waystone/servers/" + serverID,
 		"-p", "StateDirectoryMode=0750",
 		"-p", "WorkingDirectory=/var/lib/waystone/servers/" + serverID,
@@ -135,6 +121,10 @@ func WorkerCommand(serverID, operationID, user string, args ...string) ([]string
 
 	return argv, nil
 }
+
+// validateAccount checks that account is the one Waystone made for
+// serverID: the right comment and a system UID (1 to 999, never root).
+// Anything else is ErrConflict.
 func validateAccount(account Account, serverID string) error {
 	if account.Comment != AccountComment(serverID) {
 		return fmt.Errorf(
@@ -153,12 +143,9 @@ func validateAccount(account Account, serverID string) error {
 	return nil
 }
 
-// ServerAccount returns the account provisioning made for serverID.
-//   - Lookup ServerUser(serverID). ErrNoAccount: an error wrapping
-//     ErrNotProvisioned.
-//   - The account must carry exactly AccountComment(serverID) and a UID
-//     from 1 to 999, as in Provision. Otherwise an error wrapping
-//     ErrConflict. (Provision checks the same; make it call this.)
+// ServerAccount returns the account provisioning made for serverID. A
+// missing account wraps ErrNotProvisioned, and one Waystone didn't make
+// wraps ErrConflict.
 func ServerAccount(a Accounts, serverID string) (Account, error) {
 	username := ServerUser(serverID)
 
@@ -181,25 +168,16 @@ func ServerAccount(a Accounts, serverID string) (Account, error) {
 	return account, nil
 }
 
-// Worker runs waystone-worker for the provisioning service.
+// Worker runs waystone-worker for the provisioning service, so file access
+// happens as the server's own user and never as root.
 type Worker struct {
 	Accounts Accounts
 	Runner   InputRunner
 }
 
-// ReadFile runs "read-file <name>" for cmd.ServerID.
-//   - ServerAccount first; its errors are returned as they are, and the
-//     worker never runs.
-//   - WorkerCommand(cmd.ServerID, cmd.OperationID, account.Name,
-//     "read-file", cmd.File.Name), run with RunInput and no stdin.
-//   - Wrap a run error with %w ("read file: %w").
-//   - Decode stdout as one worker.ReadResult: a json.Decoder with
-//     DisallowUnknownFields, and nothing after the one value. Then check it:
-//     content at most worker.MaxFileBytes, and no content when Exists is
-//     false. Anything else is an error: the worker is ours, so malformed
-//     output means something is badly wrong, never something to guess at.
-//
-// decodeWorkerResult decodes exactly one JSON value from worker output.
+// decodeWorkerResult decodes exactly one JSON value from the worker's
+// output into result. Unknown fields and trailing data are errors: the
+// worker is ours, so odd output means something is badly wrong.
 func decodeWorkerResult(output []byte, result any) error {
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	decoder.DisallowUnknownFields()
@@ -215,6 +193,9 @@ func decodeWorkerResult(output []byte, result any) error {
 
 	return nil
 }
+
+// ReadFile runs "read-file <name>" for cmd.ServerID and returns what the
+// worker found. If the server has no valid account the worker never runs.
 func (w Worker) ReadFile(ctx context.Context, cmd Command) (worker.ReadResult, error) {
 	account, err := ServerAccount(w.Accounts, cmd.ServerID)
 	if err != nil {
@@ -242,6 +223,7 @@ func (w Worker) ReadFile(ctx context.Context, cmd Command) (worker.ReadResult, e
 		return worker.ReadResult{}, fmt.Errorf("decode read result: %w", err)
 	}
 
+	// Check the result too, even though our own worker produced it.
 	if len(result.Content) > worker.MaxFileBytes {
 		return worker.ReadResult{}, fmt.Errorf(
 			"read result exceeds maximum file size",
@@ -257,15 +239,9 @@ func (w Worker) ReadFile(ctx context.Context, cmd Command) (worker.ReadResult, e
 	return result, nil
 }
 
-// WriteFile runs "write-file <name> <expect>" for cmd.ServerID, with
-// cmd.File.Content on stdin.
-//   - ServerAccount first, as in ReadFile.
-//   - WorkerCommand(..., account.Name, "write-file", cmd.File.Name,
-//     cmd.File.Expect.String()).
-//   - Wrap a run error with %w ("write file: %w").
-//   - Decode stdout as one worker.WriteResult, as strictly as in ReadFile.
-//     OutcomeWritten: nil. OutcomeChanged: an error wrapping ErrChanged that
-//     names the file. Any other outcome: an error.
+// WriteFile runs "write-file <name> <expect>" for cmd.ServerID, with the
+// content on stdin. If the file no longer matches the expectation it
+// returns an error wrapping ErrChanged.
 func (w Worker) WriteFile(ctx context.Context, cmd Command) error {
 	account, err := ServerAccount(w.Accounts, cmd.ServerID)
 	if err != nil {

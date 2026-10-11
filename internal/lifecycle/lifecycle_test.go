@@ -19,8 +19,9 @@ const (
 	serverID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
 )
 
-// startHelper runs the real helper.Server with a fake action handler, so
-// these tests cover the agent side down to the socket.
+// startHelper runs the real helper.Server on a temp socket with a fake
+// action handler, so these tests cover the agent side down to the socket.
+// PeerCred is faked to always say "the agent" so we don't need real UIDs.
 func startHelper(t *testing.T, handle func(context.Context, helper.Command) *helperv1.Response) HelperRuntime {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "h.sock")
@@ -39,6 +40,8 @@ func startHelper(t *testing.T, handle func(context.Context, helper.Command) *hel
 	return HelperRuntime{Client: helper.Client{SocketPath: path}}
 }
 
+// ctx gives each call a timeout, so a hung helper fails the test instead
+// of hanging it.
 func ctx(t *testing.T) context.Context {
 	c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)

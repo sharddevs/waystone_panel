@@ -15,8 +15,9 @@ var goldenParams = UnitParams{
 	MemoryMaxMiB: 3072,
 }
 
-// The rendered unit is pinned byte for byte: any change to the game
-// server's sandbox shows up as a diff of testdata/waystone-srv.service.
+// The rendered unit is compared byte for byte with a golden file, so any
+// change to the game server's sandbox shows up as a diff of
+// testdata/waystone-srv.service.
 func TestRenderUnitGolden(t *testing.T) {
 	got, err := RenderUnit(goldenParams)
 	if err != nil {

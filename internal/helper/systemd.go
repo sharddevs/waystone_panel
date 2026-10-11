@@ -11,7 +11,7 @@ import (
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 )
 
-// Systemctl is the absolute path the helper runs. Never looked up in PATH.
+// Systemctl is the absolute path of systemctl. We never look it up in PATH.
 const Systemctl = "/usr/bin/systemctl"
 
 // ErrNotFound means systemd does not know the server's unit.
@@ -26,21 +26,21 @@ type Runner interface {
 // ExecRunner runs programs directly, without a shell.
 type ExecRunner struct{}
 
-// Run implements Runner with os/exec.
-//   - Never go through a shell ("sh -c").
-//   - Give the program a minimal environment: just LC_ALL=C, so output
-//     is never translated and nothing from the helper's environment leaks in.
-//   - On failure, include the program's stderr in the error; it says why.
+// Run implements Runner with os/exec. There is no shell involved, and the
+// program's stderr ends up in the error so a failure says why.
 func (r ExecRunner) Run(ctx context.Context, argv []string) ([]byte, error) {
 	return r.RunInput(ctx, argv, nil)
 }
 
+// runCommand is the shared code behind Run and RunInput.
 func runCommand(ctx context.Context, argv []string, stdin io.Reader) ([]byte, error) {
 	if len(argv) == 0 {
 		return nil, errors.New("empty command")
 	}
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// Only LC_ALL=C: output is never translated, and nothing from the
+	// helper's own environment leaks into the program.
 	cmd.Env = []string{"LC_ALL=C"}
 	cmd.Stdin = stdin
 
@@ -61,16 +61,14 @@ type Systemd struct {
 	Runner Runner
 }
 
-// Start starts the server's unit. Exact argv:
-//
-//	/usr/bin/systemctl --no-ask-password start -- waystone-srv-<id>.service
-//
-// "--" ends option parsing, so a unit name can never be read as an option.
+// Start starts the server's unit.
 func (s Systemd) Start(ctx context.Context, serverID string) error {
 	argv := []string{
 		Systemctl,
 		"--no-ask-password",
 		"start",
+		// "--" ends option parsing, so the unit name can never be read as
+		// an option.
 		"--",
 		UnitName(serverID),
 	}
@@ -79,7 +77,7 @@ func (s Systemd) Start(ctx context.Context, serverID string) error {
 	return err
 }
 
-// Stop stops the server's unit. Same argv as Start, with "stop".
+// Stop stops the server's unit.
 func (s Systemd) Stop(ctx context.Context, serverID string) error {
 	argv := []string{
 		Systemctl,
@@ -94,18 +92,8 @@ func (s Systemd) Stop(ctx context.Context, serverID string) error {
 }
 
 // Status returns the server's run state and systemd's own description of
-// it. Exact argv:
-//
-//	/usr/bin/systemctl --no-ask-password show --property=LoadState,ActiveState,SubState,Result -- waystone-srv-<id>.service
-//
-// The output is KEY=value lines, in no guaranteed order.
-//   - LoadState=not-found: return ErrNotFound.
-//   - Map ActiveState: active, reloading, refreshing -> RUNNING;
-//     activating -> STARTING; deactivating -> STOPPING; inactive -> STOPPED;
-//     failed -> FAILED; anything else -> UNSPECIFIED (never guess).
-//   - The second return value is a non-empty description for logs, e.g.
-//     "active/running result=success".
-//   - Return the runner's error unchanged (wrapping is fine).
+// it for logs, like "active/running result=success". It returns ErrNotFound
+// if systemd doesn't know the unit.
 func (s Systemd) Status(ctx context.Context, serverID string) (helperv1.RunState, string, error) {
 	argv := []string{
 		Systemctl,
@@ -120,6 +108,7 @@ func (s Systemd) Status(ctx context.Context, serverID string) (helperv1.RunState
 	if err != nil {
 		return helperv1.RunState_RUN_STATE_UNSPECIFIED, "", err
 	}
+	// The output is KEY=value lines, in no guaranteed order.
 	properties := make(map[string]string)
 	for _, line := range strings.Split(string(output), "\n") {
 		key, value, found := strings.Cut(line, "=")
@@ -148,17 +137,16 @@ func (s Systemd) Status(ctx context.Context, serverID string) (helperv1.RunState
 	case "failed":
 		state = helperv1.RunState_RUN_STATE_FAILED
 	default:
+		// A state we don't recognize stays unspecified; we don't guess.
 		state = helperv1.RunState_RUN_STATE_UNSPECIFIED
 	}
 
 	return state, native, nil
 }
 
-// Handle performs a validated command and builds the response.
-//   - Success: ERROR_CODE_UNSPECIFIED; for STATUS also run_state and native_state.
-//   - ErrNotFound: ERROR_CODE_NOT_FOUND.
-//   - Any other error: ERROR_CODE_FAILED.
-//   - Every error response has a non-empty error_message.
+// Handle performs a START, STOP or STATUS command and builds the response.
+// ErrNotFound becomes ERROR_CODE_NOT_FOUND and any other error
+// ERROR_CODE_FAILED.
 func (s Systemd) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 	var err error
 

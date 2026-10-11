@@ -59,6 +59,7 @@ func TestNewV7(t *testing.T) {
 	default:
 		t.Errorf("variant digit = %q, want one of 8 9 a b (id %s)", id[19], id)
 	}
+	// The first 12 hex digits (skipping the dash) are the millisecond timestamp.
 	ms, err := strconv.ParseInt(id[0:8]+id[9:13], 16, 64)
 	if err != nil {
 		t.Fatalf("timestamp not hex: %v", err)

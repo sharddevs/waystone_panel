@@ -1,9 +1,8 @@
 //go:build devharness
 
-// Command devharness drives a game server through the real runtime and
-// helper, for stage 3 only. It is compiled only with -tags devharness, so
-// no release build can contain it, and it is deleted in stage 4 when the
-// controller drives the agent.
+// Command devharness is a temporary tool for driving a game server by hand
+// through the real lifecycle runtime and helper. The build tag above means
+// it only compiles with -tags devharness, so release builds never contain it.
 package main
 
 import (
@@ -71,6 +70,8 @@ func main() {
 
 	switch action {
 	case "provision":
+		// flag has no Uint32, so check the range before converting.
+		// A plain uint32() conversion would silently wrap.
 		if uint64(*heapMiB) > uint64(^uint32(0)) {
 			fmt.Fprintln(os.Stderr, "heap size exceeds uint32 range")
 			os.Exit(2)
@@ -106,6 +107,7 @@ func main() {
 			operationID,
 		)
 	case "write-properties":
+		// Same uint32 guard as above. WriteProperties checks the real ranges.
 		if uint64(*port) > uint64(^uint32(0)) ||
 			uint64(*maxPlayers) > uint64(^uint32(0)) {
 			fmt.Fprintln(os.Stderr, "property value exceeds uint32 range")
@@ -138,6 +140,7 @@ func main() {
 		)
 
 		if actionErr == nil {
+			// Only the file's content goes to stdout, so it can be piped.
 			fmt.Fprintf(os.Stderr, "exists: %t\n", file.Exists)
 
 			if file.Exists {

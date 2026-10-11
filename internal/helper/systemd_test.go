@@ -22,9 +22,8 @@ func (f *fakeRunner) Run(_ context.Context, argv []string) ([]byte, error) {
 
 const testUnit = "waystone-srv-3f2504e0-4f89-41d3-9a0c-0305e82c3301.service"
 
-// The exact command lines are part of the security review: an absolute
-// program path, no shell, no password prompts, and "--" so a unit name can
-// never be read as an option.
+// The exact command lines matter: an absolute program path, no shell, no
+// password prompts, and "--" so a unit name can never be read as an option.
 func TestSystemdArgv(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {

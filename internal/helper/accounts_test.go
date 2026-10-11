@@ -7,7 +7,8 @@ import (
 	"testing"
 )
 
-// The whole command line, sandbox included, is part of the security review.
+// We compare the whole command line, sandbox included, so any change to it
+// has to be made on purpose.
 func TestSystemAccountsCreateArgv(t *testing.T) {
 	runner := &fakeRunner{}
 	a := SystemAccounts{Runner: runner}

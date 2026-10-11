@@ -13,17 +13,16 @@ type InputRunner interface {
 	RunInput(ctx context.Context, argv []string, stdin io.Reader) ([]byte, error)
 }
 
-// Runners is what NewRouter needs: both kinds. ExecRunner is one.
+// Runners is a runner of both kinds, which is what NewRouter needs.
 type Runners interface {
 	Runner
 	InputRunner
 }
 
+// This line only compiles if ExecRunner has every method of Runners.
 var _ Runners = ExecRunner{}
 
-// RunInput implements InputRunner exactly like Run (no shell, environment
-// only LC_ALL=C, stderr in the error), plus cmd.Stdin = stdin. Share the
-// code with Run instead of copying it.
+// RunInput implements InputRunner. It works exactly like Run, plus stdin.
 func (ExecRunner) RunInput(ctx context.Context, argv []string, stdin io.Reader) ([]byte, error) {
 	return runCommand(ctx, argv, stdin)
 }

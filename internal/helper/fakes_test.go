@@ -30,7 +30,8 @@ func (f *fakeInputRunner) RunInput(_ context.Context, argv []string, stdin io.Re
 	return []byte(f.output), f.err
 }
 
-// fakeRunners is both kinds of runner, for NewRouter.
+// fakeRunners embeds both fakes, so it gets both methods and can be passed
+// to NewRouter as either kind of runner.
 type fakeRunners struct {
 	fakeRunner
 	fakeInputRunner

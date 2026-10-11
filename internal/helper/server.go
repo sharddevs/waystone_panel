@@ -1,3 +1,7 @@
+// Package helper is the privileged root helper behind the agent's Unix
+// socket: framing, request validation, caller checks, and the systemd,
+// provisioning and file actions. The code is OS-neutral; the Linux-only
+// parts live in cmd/waystone-helper.
 package helper
 
 import (
@@ -11,7 +15,7 @@ import (
 )
 
 // ConnTimeout bounds how long one connection may take, so a stuck or
-// malicious client cannot hold the helper.
+// malicious client can't tie up the helper.
 const ConnTimeout = 60 * time.Second
 
 // Server answers one request per connection.
@@ -39,7 +43,9 @@ func (s *Server) logf(format string, args ...any) {
 // goroutine. It returns nil once l is closed (errors.Is(err, net.ErrClosed))
 // and any other accept error otherwise.
 func (s *Server) Serve(l net.Listener) error {
-	sem := make(chan struct{}, 16) // limit concurrent connections
+	// A buffered channel works as a semaphore: at most 16 connections are
+	// served at once, and we stop accepting while it's full.
+	sem := make(chan struct{}, 16)
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -58,21 +64,8 @@ func (s *Server) Serve(l net.Listener) error {
 	}
 }
 
-// serveConn handles one connection. Steps, in this order:
-//
-//  1. Close the connection when done, and set a deadline of ConnTimeout.
-//  2. Ask s.PeerCred who is calling. If that fails, or Authorize refuses,
-//     reply PERMISSION_DENIED and stop. Do not read the request first:
-//     never parse input from a caller you have not authorized.
-//  3. ReadFrame the request. On error reply INVALID_REQUEST.
-//  4. ValidateRequest. On error reply INVALID_REQUEST.
-//  5. Call s.Handle with a context limited to ConnTimeout, and reply with
-//     its response.
-//  6. Log one line per request. For handled requests include the operation
-//     id, server id, action, caller uid and result: this line is the audit
-//     trail in journald. For refusals include the caller's uid and pid.
-//
-// Replies are written with WriteFrame. A failed reply write is only logged.
+// serveConn handles one connection: check the caller, read and validate the
+// request, run it and write the reply. A failed reply write is only logged.
 func (s *Server) serveConn(conn net.Conn) {
 	defer conn.Close()
 
@@ -80,6 +73,8 @@ func (s *Server) serveConn(conn net.Conn) {
 		s.logf("failed to set connection deadline: %v", err)
 		return
 	}
+	// Check who is calling before reading anything. We never parse input
+	// from a caller we haven't authorized.
 	peer, err := s.PeerCred(conn)
 	if err != nil {
 		resp := &helperv1.Response{
@@ -172,6 +167,7 @@ func (s *Server) serveConn(conn net.Conn) {
 		s.logf("failed to send response: %v", err)
 	}
 
+	// This line is the audit trail in journald.
 	s.logf(
 		"operation=%s server=%s action=%s uid=%d result=%s error=%q",
 		cmd.OperationID,

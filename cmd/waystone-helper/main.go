@@ -1,8 +1,8 @@
 //go:build linux
 
-// Command waystone-helper is the root privileged helper. systemd starts it
-// through waystone-helper.socket; it serves requests from the agent's user
-// only and performs a small, fixed set of actions.
+// Command waystone-helper is the small helper that runs as root. systemd
+// hands it a socket, and it serves requests from the agent's user only,
+// as either the runtime or the provision role.
 package main
 
 import (
@@ -33,6 +33,7 @@ func main() {
 		log.Fatalf("invalid UID for agent user %q: %v", *agentUser, err)
 	}
 
+	// Authorizing uid 0 would let any root process in, so refuse to start.
 	if uid == 0 {
 		log.Fatal("refusing to authorize root as the agent user")
 	}
@@ -45,6 +46,7 @@ func main() {
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(signals)
 
+	// Closing the listener makes Serve return, so main can exit cleanly.
 	go func() {
 		<-signals
 		log.Print("shutdown signal received")

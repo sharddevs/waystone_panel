@@ -11,6 +11,7 @@ import (
 )
 
 func readFile(t *testing.T, path string) string {
+	// t.Helper makes a failure point at the caller's line instead of this one.
 	t.Helper()
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -65,8 +66,8 @@ func TestWriteFileAtomicCreatesAndReplaces(t *testing.T) {
 	noTemps(t, dir)
 }
 
-// A game server can plant a symlink where the worker writes. The link must
-// be replaced, and its target left alone.
+// A game server can plant a symlink where the worker writes. The link gets
+// replaced and its target is left alone.
 func TestWriteFileAtomicReplacesSymlinkWithoutFollowing(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(t.TempDir(), "elsewhere")
@@ -102,8 +103,8 @@ func TestWriteFileAtomicRejectsBadNames(t *testing.T) {
 	}
 }
 
-// Renaming a file over a non-empty directory fails, after the temporary
-// file already exists. It must be cleaned up.
+// Renaming over a non-empty directory fails after the temp file already
+// exists, which is an easy way to check the cleanup.
 func TestWriteFileAtomicCleansUpOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	busy := filepath.Join(dir, "busy")
@@ -147,7 +148,8 @@ func TestReplaceIfMatchesUnchangedFile(t *testing.T) {
 	noTemps(t, dir)
 }
 
-// An edit that was made and then undone leaves nothing to lose.
+// An edit that was made and then undone leaves nothing to lose, so it
+// shouldn't block the write.
 func TestReplaceIfMatchesComparesContentNotTimestamps(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "p")
@@ -159,8 +161,8 @@ func TestReplaceIfMatchesComparesContentNotTimestamps(t *testing.T) {
 	}
 }
 
-// Each case leaves the file different from what the caller expects; none
-// may be overwritten.
+// In each case the file isn't what the caller expects, so it must not be
+// overwritten.
 func TestReplaceIfMatchesDetectsChanges(t *testing.T) {
 	tests := map[string]struct {
 		before string // "" = no file
@@ -201,8 +203,8 @@ func TestReplaceIfMatchesRefusesTooLargeFile(t *testing.T) {
 	noTemps(t, dir)
 }
 
-// Conditional writes never replace a link or a directory, even when the
-// link's target matches.
+// A link or directory is never replaced, even when the link's target has
+// the expected content.
 func TestReplaceIfMatchesRefusesNonRegular(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target.txt")

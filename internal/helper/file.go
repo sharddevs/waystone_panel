@@ -11,8 +11,8 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/worker"
 )
 
-// FileCommand is a FileSpec that passed validation. Content is a string, not
-// a []byte, so Command stays comparable.
+// FileCommand is a FileSpec that passed validation. Content is a string,
+// not a []byte, so Command stays comparable and == works on it.
 type FileCommand struct {
 	Name    string
 	Content string
@@ -20,32 +20,21 @@ type FileCommand struct {
 	Expect worker.Expect
 }
 
-// ErrChanged is the worker's answer that a file is no longer what the
-// agent read. The Router answers it with ERROR_CODE_CHANGED.
+// ErrChanged means a file is no longer what the agent read. The Router
+// answers it with ERROR_CODE_CHANGED.
 var ErrChanged = errors.New("file changed since it was read")
 
 // ValidateFileSpec checks the file part of a READ_FILE or WRITE_FILE
-// request. Errors wrap ErrInvalidRequest. Both actions:
-//   - a nil spec: error;
-//   - unknown fields inside the spec: error (the request's own check does
-//     not see inside nested messages);
-//   - the name must pass worker.ValidName.
-//
-// ACTION_READ_FILE: content, expect_absent and expect_sha256 must all be
-// empty. A read that carries data is a confused or forged request.
-//
-// ACTION_WRITE_FILE:
-//   - content at most worker.MaxFileBytes;
-//   - exactly one expectation: expect_absent true with no expect_sha256, or
-//     expect_sha256 of exactly 32 bytes with expect_absent false. Neither
-//     or both: error. There is no unconditional write.
-//
-// Any other action: error (this is a programming mistake in the caller).
+// request. Errors wrap ErrInvalidRequest. A write must carry exactly one
+// expectation (the file is absent, or has this SHA-256), so there is no
+// unconditional write.
 func ValidateFileSpec(action helperv1.Action, spec *helperv1.FileSpec) (FileCommand, error) {
 	if spec == nil {
 		return FileCommand{}, fmt.Errorf("%w: missing file spec", ErrInvalidRequest)
 	}
 
+	// ValidateRequest's unknown-field check doesn't look inside nested
+	// messages, so the spec needs its own.
 	if len(spec.ProtoReflect().GetUnknown()) != 0 {
 		return FileCommand{}, fmt.Errorf("%w: unknown file fields", ErrInvalidRequest)
 	}
@@ -60,6 +49,7 @@ func ValidateFileSpec(action helperv1.Action, spec *helperv1.FileSpec) (FileComm
 
 	switch action {
 	case helperv1.Action_ACTION_READ_FILE:
+		// A read that carries data is a confused or forged request.
 		if len(spec.GetContent()) != 0 ||
 			spec.GetExpectAbsent() ||
 			len(spec.GetExpectSha256()) != 0 {

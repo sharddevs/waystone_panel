@@ -14,6 +14,7 @@ import (
 )
 
 func TestFileExpect(t *testing.T) {
+	// worker.Expect is a comparable struct (a bool and an array), so != works.
 	if got := (File{}).Expect(); got != worker.ExpectAbsent() {
 		t.Errorf("missing file: %+v, want absent", got)
 	}
@@ -25,8 +26,8 @@ func TestFileExpect(t *testing.T) {
 	}
 }
 
-// These go through the real helper.Server, so they also check that the
-// helper's ValidateRequest accepts what the agent sends.
+// The file tests go through the real helper.Server, so they also check
+// that the helper's validation accepts what the agent sends.
 func TestHelperRuntimeReadFile(t *testing.T) {
 	var got []helper.Command
 	rt := startHelper(t, func(_ context.Context, cmd helper.Command) *helperv1.Response {
@@ -109,7 +110,7 @@ func TestHelperRuntimeFileErrors(t *testing.T) {
 			t.Errorf("%v: WriteFile err = %v, want %v", code, err, want)
 		}
 	}
-	// CHANGED must map for the other actions too.
+	// CHANGED maps to ErrChanged for the other actions too.
 	rt := startHelper(t, func(context.Context, helper.Command) *helperv1.Response {
 		return &helperv1.Response{ErrorCode: helperv1.ErrorCode_ERROR_CODE_CHANGED, ErrorMessage: "detail"}
 	})
@@ -118,8 +119,8 @@ func TestHelperRuntimeFileErrors(t *testing.T) {
 	}
 }
 
-// The worker is started by the provisioning service. The runtime helper's
-// socket must never see these actions.
+// The worker is started by the provisioning service, so file actions
+// must never go to the runtime helper's socket.
 func TestHelperRuntimeFilesUseProvisionerSocket(t *testing.T) {
 	called := false
 	rt := startHelper(t, func(context.Context, helper.Command) *helperv1.Response {

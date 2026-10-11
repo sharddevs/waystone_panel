@@ -11,11 +11,7 @@ import (
 )
 
 // peerCred asks the kernel (SO_PEERCRED) who opened the connection.
-// The caller cannot fake this, unlike anything it sends in a request.
-//
-// Hint: conn must be a *net.UnixConn; use its SyscallConn().Control to get
-// the file descriptor, and syscall.GetsockoptUcred(fd, syscall.SOL_SOCKET,
-// syscall.SO_PEERCRED). Check both the Control error and the getsockopt error.
+// Unlike anything in the request, the caller can't fake this.
 func peerCred(conn net.Conn) (helper.PeerCred, error) {
 	unixConn, ok := conn.(*net.UnixConn)
 	if !ok {
@@ -28,6 +24,8 @@ func peerCred(conn net.Conn) (helper.PeerCred, error) {
 	var cred *syscall.Ucred
 	var credErr error
 
+	// Control lends us the raw fd only inside the callback, so the
+	// getsockopt result has to be passed out through these variables.
 	err = rawConn.Control(func(fd uintptr) {
 		cred, credErr = syscall.GetsockoptUcred(
 			int(fd),

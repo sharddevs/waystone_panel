@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Command waystone-worker does file work inside one server's directory. The
-// provisioning service starts it with systemd-run, as the server's own user,
-// with the server directory as its working directory. It has no socket and
-// no root code, it refuses to run as root, and it knows nothing about any
-// game.
+// Command waystone-worker reads and writes small files in one game server's
+// directory. The root helper starts it with systemd-run as the server's own
+// user, in a sandboxed unit whose working directory is the server directory.
+// It refuses to run as root and knows nothing about any game.
 //
 // Usage:
 //
@@ -26,27 +25,12 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Geteuid(), "."))
 }
 
-// run is the whole program, minus the process: main passes the real
-// arguments, streams, effective uid and working directory, so tests can
-// call run with their own. It returns the exit code.
-//
-//  1. worker.NotRoot(euid) first, before looking at anything else. On
-//     error: print it, return 1.
-//  2. Usage errors (no verb, unknown verb, wrong number of arguments):
-//     print a usage line to stderr, return 2. read-file takes exactly one
-//     argument, write-file exactly two.
-//  3. read-file <name>: worker.ReadFile(dir, name), then write the result
-//     to stdout with a json.Encoder. stdin is never read.
-//  4. write-file <name> <expect>: worker.ParseExpect(expect). Read at most
-//     worker.MaxFileBytes+1 bytes from stdin; more than MaxFileBytes is an
-//     error. Then worker.WriteFile(dir, name, content, expect).
-//     - Success: write WriteResult{Outcome: OutcomeWritten} to stdout.
-//     - An error wrapping worker.ErrChanged: write
-//     WriteResult{Outcome: OutcomeChanged} and return 0. A changed file is
-//     an answer, not a failure.
-//  5. Any other error: print "waystone-worker: <error>" to stderr, write
-//     nothing to stdout, return 1.
+// run is the whole program except for the process itself. main passes in
+// the real args, streams, euid and directory, so tests can call run with
+// their own. It returns the exit code: 0 on success, 1 on an error, 2 for a
+// usage mistake.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, euid int, dir string) int {
+	// Check this before looking at anything else.
 	if err := worker.NotRoot(euid); err != nil {
 		fmt.Fprintf(stderr, "waystone-worker: %v\n", err)
 		return 1
@@ -87,6 +71,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, euid int, dir
 			return 1
 		}
 
+		// Read one byte more than allowed so we can tell when stdin was too big.
 		content, err := io.ReadAll(io.LimitReader(stdin, worker.MaxFileBytes+1))
 		if err != nil {
 			fmt.Fprintf(stderr, "waystone-worker: %v\n", err)
@@ -104,6 +89,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, euid int, dir
 			return 1
 		}
 
+		// A changed file is an answer, not a failure, so it still exits 0.
 		outcome := worker.OutcomeWritten
 		if errors.Is(err, worker.ErrChanged) {
 			outcome = worker.OutcomeChanged

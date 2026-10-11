@@ -11,7 +11,7 @@ import (
 )
 
 // This goes through the real helper.Server, so it also checks that the
-// helper's ValidateRequest accepts the provision request the agent sends.
+// helper accepts the provision request the agent builds.
 func TestHelperRuntimeProvision(t *testing.T) {
 	var got []helper.Command
 	rt := startHelper(t, func(_ context.Context, cmd helper.Command) *helperv1.Response {
@@ -58,7 +58,7 @@ func TestHelperRuntimeProvisionErrors(t *testing.T) {
 			t.Errorf("%v: changed = true on an error", code)
 		}
 	}
-	// CONFLICT must also work for the other actions.
+	// CONFLICT maps to ErrConflict for the other actions too.
 	rt := startHelper(t, func(context.Context, helper.Command) *helperv1.Response {
 		return &helperv1.Response{ErrorCode: helperv1.ErrorCode_ERROR_CODE_CONFLICT, ErrorMessage: "detail"}
 	})
@@ -67,8 +67,6 @@ func TestHelperRuntimeProvisionErrors(t *testing.T) {
 	}
 }
 
-// Provision must use the provisioning service's socket, never the
-// runtime helper's.
 func TestHelperRuntimeProvisionUsesProvisionerSocket(t *testing.T) {
 	called := false
 	rt := startHelper(t, func(context.Context, helper.Command) *helperv1.Response {

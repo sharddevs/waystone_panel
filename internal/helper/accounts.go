@@ -8,17 +8,16 @@ import (
 	"strconv"
 )
 
-// Absolute paths of the programs Create runs. Never looked up in PATH.
+// Absolute paths of the programs Create runs. We never look them up in PATH.
 const (
 	SystemdRun = "/usr/bin/systemd-run"
 	Useradd    = "/usr/sbin/useradd"
 )
 
-// UseraddProperties is the sandbox of the transient unit that runs useradd
-// (decision: notes/stage3b-privilege-decision.md, option C). useradd needs
-// the directory /etc writable for its lock, temporary and backup files;
-// group shadow lets it keep /etc/shadow's group without CAP_CHOWN.
-// This list is part of the security review. Only ever make it stricter.
+// UseraddProperties is the sandbox of the transient unit that runs useradd.
+// useradd needs /etc writable for its lock, temporary and backup files, and
+// the shadow group lets it keep /etc/shadow's group without CAP_CHOWN.
+// This list is a security boundary, so it should only ever get stricter.
 var UseraddProperties = []string{
 	"ProtectSystem=strict",
 	"ReadWritePaths=/etc",
@@ -51,15 +50,12 @@ type SystemAccounts struct {
 	Runner Runner
 }
 
-// Lookup implements Accounts.
-//   - Use user.Lookup. A user.UnknownUserError means the account does not
-//     exist: return an error wrapping ErrNoAccount. Any other error is
-//     returned as it is.
-//   - Parse Uid and Gid as 32-bit unsigned numbers (strconv.ParseUint).
-//   - Comment is the user's Name field (the GECOS comment).
+// Lookup implements Accounts. Comment is the user's Name field, which is
+// the GECOS comment.
 func (SystemAccounts) Lookup(name string) (Account, error) {
 	u, err := user.Lookup(name)
 	if err != nil {
+		// errors.As checks whether err (or anything it wraps) is this type.
 		var unknown user.UnknownUserError
 		if errors.As(err, &unknown) {
 			return Account{}, fmt.Errorf("%w: user %q does not exist", ErrNoAccount, name)
@@ -82,30 +78,16 @@ func (SystemAccounts) Lookup(name string) (Account, error) {
 	}, nil
 }
 
-// Create implements Accounts. It never runs useradd in its own process:
-// the provisioning service cannot write /etc. It asks systemd to run
-// useradd once, in a transient unit with UseraddProperties, and waits.
-// Exact argv, in this order, with each UseraddProperties entry as its own
-// "-p", "<entry>" pair:
-//
-//	/usr/bin/systemd-run --wait --collect --quiet --pipe --service-type=exec
-//	    --unit=waystone-useradd-<name>.service --setenv=LC_ALL=C
-//	    -p <entry> ...
-//	    -- /usr/sbin/useradd --system --user-group --no-create-home
-//	    --home-dir /nonexistent --shell /usr/sbin/nologin --comment <comment> -- <name>
-//
-// Rules:
-//   - First check that name has exactly the shape ServerUser produces
-//     ("ws-" and 12 lowercase hex digits). Anything else: an error wrapping
-//     ErrInvalidRequest, and nothing runs.
-//   - --wait and --pipe make systemd-run return useradd's exit status and
-//     pass on its stderr, so a failure says why. --collect unloads the
-//     transient unit even when it failed.
-//   - Return the Runner's error wrapped with %w.
+// Create implements Accounts. The provisioning service itself can't write
+// /etc, so instead of running useradd directly we ask systemd to run it
+// once in a transient unit sandboxed with UseraddProperties, and wait.
+// name must have exactly the shape ServerUser produces, or nothing runs.
 func (a SystemAccounts) Create(ctx context.Context, name, comment string) error {
 	if err := ValidateServerUser(name); err != nil {
 		return err
 	}
+	// --wait and --pipe give us useradd's exit status and stderr, so a
+	// failure says why. --collect unloads the unit even when it failed.
 	args := []string{
 		"--wait",
 		"--collect",

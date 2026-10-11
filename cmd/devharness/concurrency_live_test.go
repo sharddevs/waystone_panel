@@ -14,6 +14,10 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/lifecycle"
 )
 
+// TestLiveStaleWrite checks against the real provisioner that a write based
+// on an old read fails with ErrChanged and leaves the file alone. It needs
+// -tags devharness,liveintegration and an already provisioned server with
+// this ID on the machine. At the end it writes the original content back.
 func TestLiveStaleWrite(t *testing.T) {
 	const serverID = "a3600878-96e7-426d-b8fd-3c550a178b9f"
 	const name = "server.properties"
@@ -54,6 +58,7 @@ func TestLiveStaleWrite(t *testing.T) {
 		t.Fatalf("initial write: %v", err)
 	}
 
+	// original is stale now, since we just changed the file.
 	err = runtime.WriteFile(
 		ctx, serverID, newOperationID(), name,
 		[]byte("motd=stale write\n"), original,

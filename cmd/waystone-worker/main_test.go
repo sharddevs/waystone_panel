@@ -27,6 +27,7 @@ func call(t *testing.T, dir string, euid int, stdin string, args ...string) resu
 	return result{code, stdout.String(), stderr.String()}
 }
 
+// decode parses stdout as a T and fails on any field T doesn't have.
 func decode[T any](t *testing.T, s string) T {
 	t.Helper()
 	var v T

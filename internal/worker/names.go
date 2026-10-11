@@ -8,21 +8,18 @@ import (
 	"fmt"
 )
 
-// ValidName returns nil if name is a file name the worker may touch, or an
-// error wrapping ErrInvalid.
-//   - 1 to MaxNameBytes bytes.
-//   - Only ASCII letters, digits, '.', '_' and '-'.
-//   - The first byte is a letter or a digit. That rules out "." and "..",
-//     names that look like options ("-x"), and the worker's own temporary
-//     files, which start with '.'.
-//
-// No '/' can pass, so a name never leaves the server directory or reaches
-// into a subdirectory.
+// ValidName returns nil if name is a plain file name the worker may touch,
+// otherwise an error wrapping ErrInvalid. Only ASCII letters, digits, '.',
+// '_' and '-' are allowed, so a '/' can never get through and a name can't
+// leave the server directory.
 func ValidName(name string) error {
 	if len(name) == 0 || len(name) > MaxNameBytes {
 		return fmt.Errorf("%w: invalid filename length", ErrInvalid)
 	}
 
+	// The first byte has to be a letter or digit. That rules out "." and
+	// "..", names that look like flags ("-x"), and our own temp files,
+	// which start with '.'.
 	for i := 0; i < len(name); i++ {
 		c := name[i]
 
@@ -42,26 +39,25 @@ func ValidName(name string) error {
 }
 
 // Expect is what a conditional write requires of the file it replaces:
-// either that it does not exist (Absent), or that its current content has
-// exactly this SHA-256. The zero value matches nothing that can be read
-// back, so a forgotten Expect fails safe.
+// either it doesn't exist (Absent) or its content has this SHA-256.
+// The zero value matches no real file, so forgetting to set it fails safe.
 type Expect struct {
 	Absent bool
 	SHA256 [sha256.Size]byte
 }
 
-// ExpectAbsent is the Expect for "the file must not exist".
+// ExpectAbsent returns an Expect for a file that must not exist yet.
 func ExpectAbsent() Expect {
 	return Expect{Absent: true}
 }
 
-// ExpectContent is the Expect for "the file must still contain content".
+// ExpectContent returns an Expect for a file that must still hold content.
 func ExpectContent(content []byte) Expect {
 	return Expect{SHA256: sha256.Sum256(content)}
 }
 
-// String is the form waystone-worker takes on its command line: "absent",
-// or the SHA-256 as 64 lowercase hex digits.
+// String returns the form waystone-worker takes on its command line:
+// "absent", or the SHA-256 as 64 lowercase hex digits.
 func (e Expect) String() string {
 	if e.Absent {
 		return "absent"
@@ -71,7 +67,7 @@ func (e Expect) String() string {
 }
 
 // ParseExpect is the reverse of String. Anything else, including uppercase
-// hex or a hash of the wrong length, is an error wrapping ErrInvalid.
+// hex, is an error wrapping ErrInvalid.
 func ParseExpect(s string) (Expect, error) {
 	if s == "absent" {
 		return ExpectAbsent(), nil
@@ -81,6 +77,8 @@ func ParseExpect(s string) (Expect, error) {
 		return Expect{}, fmt.Errorf("%w: invalid hash length", ErrInvalid)
 	}
 
+	// hex.DecodeString accepts uppercase too, so we check by hand and only
+	// take the lowercase form that String produces.
 	for _, c := range s {
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
 			return Expect{}, fmt.Errorf("%w: invalid hash character", ErrInvalid)

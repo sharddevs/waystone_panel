@@ -15,7 +15,7 @@ import (
 )
 
 func TestServerUser(t *testing.T) {
-	// Pinned: changing the derivation would orphan every existing server.
+	// This must never change: a different name would orphan every existing server.
 	if got, want := ServerUser(testServerID), "ws-16362f566387"; got != want {
 		t.Errorf("ServerUser(%s) = %q, want %q", testServerID, got, want)
 	}
@@ -103,8 +103,8 @@ func TestValidateRequestProvision(t *testing.T) {
 	}
 }
 
-// Fakes for the Provisioner. Every call is appended to one shared log, so
-// tests can check the order of side effects.
+// Fakes for the Provisioner. They all append to one shared log, so tests
+// can check the order of side effects.
 
 type fakeAccounts struct {
 	log       *[]string

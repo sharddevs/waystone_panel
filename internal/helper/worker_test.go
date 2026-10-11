@@ -31,8 +31,8 @@ func TestValidateServerUser(t *testing.T) {
 	}
 }
 
-// The worker's whole command line, sandbox included, is part of the
-// security review. Any change must show up here.
+// We compare the worker's whole command line, sandbox included, so any
+// change to it shows up here.
 func TestWorkerCommandArgv(t *testing.T) {
 	got, err := WorkerCommand(testServerID, testOpID, testUser, "read-file", "server.properties")
 	if err != nil {

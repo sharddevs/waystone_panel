@@ -1,6 +1,5 @@
-// Package lifecycle is the agent's view of a game server's lifecycle.
-// The dev harness (stage 3) and the agent's controller-facing service
-// (stage 4) both call a Runtime, so the harness exercises the real path.
+// Package lifecycle is the agent's side of running a game server: it asks
+// the root helper and the provisioner to start, stop, provision and edit files.
 package lifecycle
 
 import (
@@ -13,13 +12,15 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/helper"
 )
 
-// Status is a server's run state plus the runtime's own description.
+// Status is a server's run state plus systemd's own description of it
+// (like "active/running result=success"), which is handy in logs.
 type Status struct {
 	State  helperv1.RunState
 	Native string
 }
 
-// Runtime starts, stops and inspects game servers.
+// Runtime is everything the agent can do to a game server. It's an
+// interface so callers can be tested with a fake.
 type Runtime interface {
 	Start(ctx context.Context, serverID, operationID string) error
 	Stop(ctx context.Context, serverID, operationID string) error
@@ -29,7 +30,7 @@ type Runtime interface {
 	WriteFile(ctx context.Context, serverID, operationID, name string, content []byte, base File) error
 }
 
-// Errors returned for the helper's error codes.
+// Errors for the helper's error codes. Check them with errors.Is.
 var (
 	ErrPermissionDenied = errors.New("helper refused: permission denied")
 	ErrInvalidRequest   = errors.New("helper refused: invalid request")
@@ -37,23 +38,19 @@ var (
 	ErrFailed           = errors.New("action failed")
 )
 
-// HelperRuntime is the native systemd runtime. Every action goes through
-// the privileged helper; the agent itself never touches systemd.
+// HelperRuntime runs servers through the privileged helpers; the agent never
+// touches systemd itself. Client talks to the root helper (start, stop,
+// status), Provisioner to the provisioning service (provision, files).
 type HelperRuntime struct {
 	Client      helper.Client
 	Provisioner helper.Client
 }
 
+// This line doesn't compile if HelperRuntime stops satisfying Runtime.
 var _ Runtime = HelperRuntime{}
 
-// do sends one action to the helper and turns its error code into an error.
-//   - A failed exchange: return an error that says the helper could not be reached.
-//   - ERROR_CODE_UNSPECIFIED: success, return the response.
-//   - PERMISSION_DENIED, INVALID_REQUEST, NOT_FOUND, FAILED: return an error
-//     wrapping ErrPermissionDenied, ErrInvalidRequest, ErrNotFound or
-//     ErrFailed, including the helper's error_message.
-//   - Any code this agent does not know: ErrFailed. Never treat an unknown
-//     answer as success.
+// do sends a start, stop or status action to the runtime helper. The error
+// handling is in send, which the provisioner's actions use too.
 func (h HelperRuntime) do(
 	ctx context.Context,
 	action helperv1.Action,
@@ -77,6 +74,7 @@ func (h HelperRuntime) send(
 		return nil, fmt.Errorf("could not reach helper: %w", err)
 	}
 
+	// %w wraps our sentinel error so callers can still use errors.Is.
 	switch resp.GetErrorCode() {
 	case helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED:
 		return resp, nil
@@ -85,6 +83,8 @@ func (h HelperRuntime) send(
 		return nil, fmt.Errorf("%w: %s", ErrPermissionDenied, resp.GetErrorMessage())
 
 	case helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST:
+		// The helper's message already starts with "invalid request: ",
+		// which would repeat our own error text.
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRequest,
 			strings.TrimPrefix(resp.GetErrorMessage(), "invalid request: "))
 
@@ -100,6 +100,7 @@ func (h HelperRuntime) send(
 	case helperv1.ErrorCode_ERROR_CODE_FAILED:
 		return nil, fmt.Errorf("%w: %s", ErrFailed, resp.GetErrorMessage())
 
+	// A code we don't know is never treated as success.
 	default:
 		return nil, fmt.Errorf("%w: unknown helper error code %d: %s",
 			ErrFailed, resp.GetErrorCode(), resp.GetErrorMessage())

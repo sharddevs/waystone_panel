@@ -1,32 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package worker holds what waystone-worker does inside one server's
-// directory. It runs as that server's own user, never as root, and it
-// treats every file already in the directory as untrusted: the game server
-// can change any of them.
-//
-// The worker is game-neutral. It reads and replaces small files by name;
-// what a file means (server.properties, eula.txt) is the agent's profile
-// code, never the worker's or the helper's.
+// Package worker reads and replaces small files in one server's directory
+// for waystone-worker. It runs as the server's own user and treats every
+// file in that directory as untrusted, since the game server can change them.
+// It knows nothing about any game.
 package worker
 
 import "errors"
 
 var (
-	// ErrInvalid means the input to the worker failed validation.
+	// ErrInvalid means a name, hash or content given to the worker was bad.
 	ErrInvalid = errors.New("invalid worker input")
-	// ErrUnsupported means a file in the server directory has a shape the
-	// worker refuses to read, follow or replace: a symlink, a directory or
-	// another non-regular file, or a file larger than MaxFileBytes.
-	// Nothing was changed.
+	// ErrUnsupported means the file is something the worker won't touch:
+	// a symlink, a directory or other non-regular file, or one over
+	// MaxFileBytes. Nothing was changed.
 	ErrUnsupported = errors.New("unsupported file")
-	// ErrChanged means the file is no longer what the caller expected.
-	// Nothing was replaced; reading again and deciding again is safe.
+	// ErrChanged means the file is no longer what the caller expected, so
+	// nothing was replaced. Read it again and decide again.
 	ErrChanged = errors.New("file changed since it was read")
 )
 
-// Limits. MaxFileBytes keeps a whole file plus the request around it inside
-// one helper frame (64 KiB); a real server.properties is about 1.5 KiB.
+// Size limits. MaxFileBytes leaves room for a whole file plus the rest of the
+// request in one 64 KiB helper frame. A real server.properties is
+// about 1.5 KiB.
 const (
 	MaxFileBytes = 48 << 10
 	MaxNameBytes = 64

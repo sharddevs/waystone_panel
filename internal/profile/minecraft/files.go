@@ -16,21 +16,20 @@ const (
 	PropertiesFile = "server.properties"
 )
 
-// Files is what the profile needs from the node: read a small file, and
-// replace it if it is still what was read. lifecycle.Runtime is one; tests
-// use a fake.
+// Files is the small slice of the node the profile needs: read a file, and
+// replace it only if it's still what was read. lifecycle.Runtime satisfies
+// it, and keeping the interface this small makes it easy to fake in tests.
 type Files interface {
 	ReadFile(ctx context.Context, serverID, operationID, name string) (lifecycle.File, error)
 	WriteFile(ctx context.Context, serverID, operationID, name string, content []byte, base lifecycle.File) error
 }
 
+// Compile-time check that lifecycle.Runtime still satisfies Files.
 var _ Files = lifecycle.Runtime(nil)
 
-// EulaContent is the eula.txt that records an explicit acceptance, exactly:
-//
-//	"# Accepted through Waystone, operation <operationID>\neula=true\n"
-//
-// operationID must pass ids.Check; otherwise an error wrapping ErrInvalid.
+// EulaContent returns the eula.txt we write for an explicit acceptance,
+// with operationID in a comment. operationID must pass ids.Check, which also
+// keeps it from sneaking extra lines into the file.
 func EulaContent(operationID string) ([]byte, error) {
 	if err := ids.Check(operationID); err != nil {
 		return nil, fmt.Errorf("%w: invalid operation ID: %v", ErrInvalid, err)
@@ -44,26 +43,22 @@ func EulaContent(operationID string) ([]byte, error) {
 	return []byte(content), nil
 }
 
-// AcceptEula records that a person accepted the Minecraft EULA in this
-// operation. Call it only for an explicit acceptance; nothing may call it on
-// its own, and nothing infers acceptance from an existing eula.txt.
-//  1. EulaContent(operationID). On error, return it before touching
-//     anything.
-//  2. ReadFile eula.txt, only to get the base for the write. Its content is
-//     never looked at: "eula=true" already being there is not an
-//     acceptance.
-//  3. WriteFile eula.txt with the content and that base.
-//
-// Wrap errors from f with %w and say which step failed, so
-// lifecycle.ErrChanged and the others stay detectable.
+// AcceptEula writes eula.txt to record that a person accepted the Minecraft
+// EULA in this operation. Only call it for an explicit acceptance. We never
+// decide on our own that the EULA was accepted, even if eula.txt already
+// says eula=true.
 func AcceptEula(ctx context.Context, f Files, serverID, operationID string) error {
 	content, err := EulaContent(operationID)
 	if err != nil {
 		return err
 	}
 
+	// We only read the file to get a base for the conditional write. Its
+	// content is never looked at.
 	base, err := f.ReadFile(ctx, serverID, operationID, EulaFile)
 	if err != nil {
+		// %w keeps the original error, so errors.Is still finds
+		// lifecycle.ErrChanged and friends.
 		return fmt.Errorf("read eula.txt: %w", err)
 	}
 
@@ -75,16 +70,9 @@ func AcceptEula(ctx context.Context, f Files, serverID, operationID string) erro
 }
 
 // WriteProperties sets the managed keys in server.properties and keeps
-// every other line.
-//  1. p.Validate(). On error, return it before touching anything.
-//  2. ReadFile server.properties.
-//  3. MergeProperties with its content (nil if it doesn't exist).
-//  4. WriteFile the result with what was read as the base. If an
-//     administrator changed the file in between, this fails with
-//     lifecycle.ErrChanged and nothing is written. Don't retry here: the
-//     operation fails, and running it again re-reads the new file.
-//
-// Wrap errors with %w as in AcceptEula.
+// every other line. If an administrator edits the file between our read and
+// our write, it fails with lifecycle.ErrChanged and writes nothing. We don't
+// retry here: running the operation again reads the new file.
 func WriteProperties(
 	ctx context.Context,
 	f Files,
