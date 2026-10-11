@@ -73,20 +73,7 @@ func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 
 		result, err := r.Worker.ReadFile(ctx, cmd)
 		if err != nil {
-			code := helperv1.ErrorCode_ERROR_CODE_FAILED
-
-			if errors.Is(err, ErrNotProvisioned) {
-				code = helperv1.ErrorCode_ERROR_CODE_NOT_FOUND
-			} else if errors.Is(err, ErrConflict) {
-				code = helperv1.ErrorCode_ERROR_CODE_CONFLICT
-			} else if errors.Is(err, ErrInvalidRequest) {
-				code = helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST
-			}
-
-			return &helperv1.Response{
-				ErrorCode:    code,
-				ErrorMessage: err.Error(),
-			}
+			return fileErrorResponse(err)
 		}
 
 		return &helperv1.Response{
@@ -106,29 +93,11 @@ func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 
 		err := r.Worker.WriteFile(ctx, cmd)
 		if err != nil {
-			code := helperv1.ErrorCode_ERROR_CODE_FAILED
-
-			switch {
-			case errors.Is(err, ErrNotProvisioned):
-				code = helperv1.ErrorCode_ERROR_CODE_NOT_FOUND
-			case errors.Is(err, ErrChanged):
-				code = helperv1.ErrorCode_ERROR_CODE_CHANGED
-			case errors.Is(err, ErrConflict):
-				code = helperv1.ErrorCode_ERROR_CODE_CONFLICT
-			case errors.Is(err, ErrInvalidRequest):
-				code = helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST
-			}
-
-			return &helperv1.Response{
-				ErrorCode:    code,
-				ErrorMessage: err.Error(),
-			}
+			return fileErrorResponse(err)
 		}
 
-		return &helperv1.Response{
-			ErrorCode: helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED,
-			Changed:   true,
-		}
+		return &helperv1.Response{}
+
 	case helperv1.Action_ACTION_START,
 		helperv1.Action_ACTION_STOP,
 		helperv1.Action_ACTION_STATUS:
@@ -154,7 +123,7 @@ func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 // role runs as its own systemd service with its own socket and sandbox.
 const (
 	RoleRuntime   = "runtime"   // waystone-helper.service: START, STOP, STATUS
-	RoleProvision = "provision" // waystone-provisioner.service: PROVISION
+	RoleProvision = "provision" // waystone-provisioner.service: PROVISION, READ_FILE, WRITE_FILE
 )
 
 // NewRouter returns the Router for a role.
@@ -195,4 +164,25 @@ func NewRouter(role string, runner Runners) (Router, error) {
 	}
 
 	return Router{}, fmt.Errorf("unknown helper role %q", role)
+}
+
+// fileErrorResponse maps a file worker error to a helper response.
+func fileErrorResponse(err error) *helperv1.Response {
+	code := helperv1.ErrorCode_ERROR_CODE_FAILED
+
+	switch {
+	case errors.Is(err, ErrNotProvisioned):
+		code = helperv1.ErrorCode_ERROR_CODE_NOT_FOUND
+	case errors.Is(err, ErrChanged):
+		code = helperv1.ErrorCode_ERROR_CODE_CHANGED
+	case errors.Is(err, ErrConflict):
+		code = helperv1.ErrorCode_ERROR_CODE_CONFLICT
+	case errors.Is(err, ErrInvalidRequest):
+		code = helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST
+	}
+
+	return &helperv1.Response{
+		ErrorCode:    code,
+		ErrorMessage: err.Error(),
+	}
 }

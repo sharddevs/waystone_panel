@@ -43,7 +43,13 @@ func writeFileAtomicChecked(dir, name string, data []byte, check func() error) e
 	}
 
 	tempName := temp.Name()
-	defer os.Remove(tempName)
+	renamed := false
+
+	defer func() {
+		if !renamed {
+			_ = os.Remove(tempName)
+		}
+	}()
 
 	n, err := temp.Write(data)
 	if err != nil {
@@ -82,6 +88,7 @@ func writeFileAtomicChecked(dir, name string, data []byte, check func() error) e
 		return err
 	}
 
+	renamed = true
 	return syncDir(dir)
 }
 

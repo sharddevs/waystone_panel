@@ -223,9 +223,10 @@ func MergeProperties(existing []byte, p Properties) ([]byte, error) {
 
 			output = append(output, line)
 
-			// Unmanaged properties may have continued values.
-			// Their following lines must not be parsed as keys.
-			if key != "" {
+			// Every nonblank, noncomment property can continue,
+			// including one with an empty key.
+			trimmed := strings.TrimLeft(line, " \t\f")
+			if trimmed != "" && trimmed[0] != '#' && trimmed[0] != '!' {
 				continuation = continuesLine(line)
 			}
 		}

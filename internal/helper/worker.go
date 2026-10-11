@@ -198,6 +198,23 @@ type Worker struct {
 //     content at most worker.MaxFileBytes, and no content when Exists is
 //     false. Anything else is an error: the worker is ours, so malformed
 //     output means something is badly wrong, never something to guess at.
+//
+// decodeWorkerResult decodes exactly one JSON value from worker output.
+func decodeWorkerResult(output []byte, result any) error {
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(result); err != nil {
+		return fmt.Errorf("decode worker result: %w", err)
+	}
+
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("worker result contains trailing data or invalid JSON: %v", err)
+	}
+
+	return nil
+}
 func (w Worker) ReadFile(ctx context.Context, cmd Command) (worker.ReadResult, error) {
 	account, err := ServerAccount(w.Accounts, cmd.ServerID)
 	if err != nil {
@@ -220,20 +237,9 @@ func (w Worker) ReadFile(ctx context.Context, cmd Command) (worker.ReadResult, e
 		return worker.ReadResult{}, fmt.Errorf("read file: %w", err)
 	}
 
-	decoder := json.NewDecoder(bytes.NewReader(output))
-	decoder.DisallowUnknownFields()
-
 	var result worker.ReadResult
-	if err := decoder.Decode(&result); err != nil {
+	if err := decodeWorkerResult(output, &result); err != nil {
 		return worker.ReadResult{}, fmt.Errorf("decode read result: %w", err)
-	}
-
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return worker.ReadResult{}, fmt.Errorf(
-			"read result contains trailing data or invalid JSON: %v",
-			err,
-		)
 	}
 
 	if len(result.Content) > worker.MaxFileBytes {
@@ -287,20 +293,9 @@ func (w Worker) WriteFile(ctx context.Context, cmd Command) error {
 		return fmt.Errorf("write file: %w", err)
 	}
 
-	decoder := json.NewDecoder(bytes.NewReader(output))
-	decoder.DisallowUnknownFields()
-
 	var result worker.WriteResult
-	if err := decoder.Decode(&result); err != nil {
+	if err := decodeWorkerResult(output, &result); err != nil {
 		return fmt.Errorf("decode write result: %w", err)
-	}
-
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return fmt.Errorf(
-			"write result contains trailing data or invalid JSON: %v",
-			err,
-		)
 	}
 
 	switch result.Outcome {

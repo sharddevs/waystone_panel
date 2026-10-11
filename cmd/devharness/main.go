@@ -138,9 +138,10 @@ func main() {
 		)
 
 		if actionErr == nil {
-			fmt.Printf("exists: %t\n", file.Exists)
+			fmt.Fprintf(os.Stderr, "exists: %t\n", file.Exists)
+
 			if file.Exists {
-				fmt.Printf("content:\n%s", file.Content)
+				_, actionErr = os.Stdout.Write(file.Content)
 			}
 		}
 
@@ -166,5 +167,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("op %s: ok\n", operationID)
+	fmt.Fprintf(os.Stderr, "op %s: ok\n", operationID)
 }

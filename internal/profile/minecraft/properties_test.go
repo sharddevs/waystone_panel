@@ -161,3 +161,27 @@ func TestMergePropertiesRefuses(t *testing.T) {
 		}
 	}
 }
+func TestMergePropertiesEmptyKeyContinuation(t *testing.T) {
+	input := "=x\\\nserver-port=1\n"
+
+	props := Properties{
+		ServerPort: 25565,
+		Motd:       "Waystone test",
+		MaxPlayers: 20,
+	}
+
+	got, err := MergeProperties([]byte(input), props)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := "=x\\\nserver-port=1\n" +
+		"server-port=25565\n" +
+		"motd=Waystone test\n" +
+		"max-players=20\n" +
+		"online-mode=true\n"
+
+	if string(got) != want {
+		t.Errorf("MergeProperties:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}

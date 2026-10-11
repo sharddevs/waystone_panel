@@ -3,6 +3,7 @@
 package helper
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 
@@ -90,7 +91,7 @@ func ValidateFileSpec(action helperv1.Action, spec *helperv1.FileSpec) (FileComm
 
 			cmd.Expect = worker.ExpectAbsent()
 		} else {
-			if len(hash) != 32 {
+			if len(hash) != sha256.Size {
 				return FileCommand{}, fmt.Errorf(
 					"%w: expected SHA-256 must be 32 bytes",
 					ErrInvalidRequest,
