@@ -25,6 +25,8 @@ type Runtime interface {
 	Stop(ctx context.Context, serverID, operationID string) error
 	Status(ctx context.Context, serverID, operationID string) (Status, error)
 	Provision(ctx context.Context, serverID, operationID string, spec ProvisionSpec) (bool, error)
+	ReadFile(ctx context.Context, serverID, operationID, name string) (File, error)
+	WriteFile(ctx context.Context, serverID, operationID, name string, content []byte, base File) error
 }
 
 // Errors returned for the helper's error codes.
@@ -91,6 +93,9 @@ func (h HelperRuntime) send(
 
 	case helperv1.ErrorCode_ERROR_CODE_CONFLICT:
 		return nil, fmt.Errorf("%w: %s", ErrConflict, resp.GetErrorMessage())
+
+	case helperv1.ErrorCode_ERROR_CODE_CHANGED:
+		return nil, fmt.Errorf("%w: %s", ErrChanged, resp.GetErrorMessage())
 
 	case helperv1.ErrorCode_ERROR_CODE_FAILED:
 		return nil, fmt.Errorf("%w: %s", ErrFailed, resp.GetErrorMessage())

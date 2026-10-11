@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
@@ -30,13 +31,19 @@ type ExecRunner struct{}
 //   - Give the program a minimal environment: just LC_ALL=C, so output
 //     is never translated and nothing from the helper's environment leaks in.
 //   - On failure, include the program's stderr in the error; it says why.
-func (ExecRunner) Run(ctx context.Context, argv []string) ([]byte, error) {
+func (r ExecRunner) Run(ctx context.Context, argv []string) ([]byte, error) {
+	return r.RunInput(ctx, argv, nil)
+}
+
+func runCommand(ctx context.Context, argv []string, stdin io.Reader) ([]byte, error) {
 	if len(argv) == 0 {
 		return nil, errors.New("empty command")
 	}
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Env = []string{"LC_ALL=C"}
+	cmd.Stdin = stdin
+
 	output, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -45,6 +52,7 @@ func (ExecRunner) Run(ctx context.Context, argv []string) ([]byte, error) {
 		}
 		return nil, err
 	}
+
 	return output, nil
 }
 

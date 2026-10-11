@@ -41,6 +41,12 @@ const (
 	// Create what the server needs from the machine: its own user, its
 	// directory and its service definition. Safe to repeat.
 	Action_ACTION_PROVISION Action = 4
+	// Read one small file in the server's directory, as the server's own
+	// user. Game-neutral: what the file means is the agent's profile code.
+	Action_ACTION_READ_FILE Action = 5
+	// Replace one small file in the server's directory, as the server's own
+	// user, only if it still is what the agent read (see FileSpec).
+	Action_ACTION_WRITE_FILE Action = 6
 )
 
 // Enum value maps for Action.
@@ -51,6 +57,8 @@ var (
 		2: "ACTION_STOP",
 		3: "ACTION_STATUS",
 		4: "ACTION_PROVISION",
+		5: "ACTION_READ_FILE",
+		6: "ACTION_WRITE_FILE",
 	}
 	Action_value = map[string]int32{
 		"ACTION_UNSPECIFIED": 0,
@@ -58,6 +66,8 @@ var (
 		"ACTION_STOP":        2,
 		"ACTION_STATUS":      3,
 		"ACTION_PROVISION":   4,
+		"ACTION_READ_FILE":   5,
+		"ACTION_WRITE_FILE":  6,
 	}
 )
 
@@ -104,6 +114,9 @@ const (
 	// Something the action would create already exists and was not created
 	// by Waystone for this server. Nothing was changed.
 	ErrorCode_ERROR_CODE_CONFLICT ErrorCode = 5
+	// ACTION_WRITE_FILE: the file is no longer what the agent read. Nothing
+	// was written; read it again and decide again.
+	ErrorCode_ERROR_CODE_CHANGED ErrorCode = 6
 )
 
 // Enum value maps for ErrorCode.
@@ -115,6 +128,7 @@ var (
 		3: "ERROR_CODE_NOT_FOUND",
 		4: "ERROR_CODE_FAILED",
 		5: "ERROR_CODE_CONFLICT",
+		6: "ERROR_CODE_CHANGED",
 	}
 	ErrorCode_value = map[string]int32{
 		"ERROR_CODE_UNSPECIFIED":       0,
@@ -123,6 +137,7 @@ var (
 		"ERROR_CODE_NOT_FOUND":         3,
 		"ERROR_CODE_FAILED":            4,
 		"ERROR_CODE_CONFLICT":          5,
+		"ERROR_CODE_CHANGED":           6,
 	}
 )
 
@@ -279,7 +294,10 @@ type Request struct {
 	ServerId string `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
 	Action   Action `protobuf:"varint,3,opt,name=action,proto3,enum=waystone.helper.v1.Action" json:"action,omitempty"`
 	// Required for ACTION_PROVISION and refused for every other action.
-	Provision     *ProvisionSpec `protobuf:"bytes,4,opt,name=provision,proto3" json:"provision,omitempty"`
+	Provision *ProvisionSpec `protobuf:"bytes,4,opt,name=provision,proto3" json:"provision,omitempty"`
+	// Required for ACTION_READ_FILE and ACTION_WRITE_FILE, refused for
+	// every other action.
+	File          *FileSpec `protobuf:"bytes,5,opt,name=file,proto3" json:"file,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -342,6 +360,88 @@ func (x *Request) GetProvision() *ProvisionSpec {
 	return nil
 }
 
+func (x *Request) GetFile() *FileSpec {
+	if x != nil {
+		return x.File
+	}
+	return nil
+}
+
+// One file directly inside the server's directory.
+type FileSpec struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A plain file name: 1 to 64 bytes of letters, digits, '.', '_' and '-',
+	// starting with a letter or digit. No paths.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// ACTION_WRITE_FILE only: the new content, at most 48 KiB.
+	Content []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	// ACTION_WRITE_FILE only, exactly one of these two: the file must not
+	// exist, or its current content must have this SHA-256 (32 bytes).
+	// Otherwise nothing is written and the answer is ERROR_CODE_CHANGED.
+	ExpectAbsent  bool   `protobuf:"varint,3,opt,name=expect_absent,json=expectAbsent,proto3" json:"expect_absent,omitempty"`
+	ExpectSha256  []byte `protobuf:"bytes,4,opt,name=expect_sha256,json=expectSha256,proto3" json:"expect_sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileSpec) Reset() {
+	*x = FileSpec{}
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileSpec) ProtoMessage() {}
+
+func (x *FileSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileSpec.ProtoReflect.Descriptor instead.
+func (*FileSpec) Descriptor() ([]byte, []int) {
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *FileSpec) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FileSpec) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *FileSpec) GetExpectAbsent() bool {
+	if x != nil {
+		return x.ExpectAbsent
+	}
+	return false
+}
+
+func (x *FileSpec) GetExpectSha256() []byte {
+	if x != nil {
+		return x.ExpectSha256
+	}
+	return nil
+}
+
 type Response struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	ErrorCode ErrorCode              `protobuf:"varint,1,opt,name=error_code,json=errorCode,proto3,enum=waystone.helper.v1.ErrorCode" json:"error_code,omitempty"`
@@ -353,14 +453,16 @@ type Response struct {
 	NativeState string `protobuf:"bytes,4,opt,name=native_state,json=nativeState,proto3" json:"native_state,omitempty"`
 	// Set only for ACTION_PROVISION: true if this request changed anything
 	// on the machine, false if everything was already in place.
-	Changed       bool `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
+	Changed bool `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
+	// Set only for ACTION_READ_FILE.
+	File          *FileResult `protobuf:"bytes,6,opt,name=file,proto3" json:"file,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -372,7 +474,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -385,7 +487,7 @@ func (x *Response) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Response.ProtoReflect.Descriptor instead.
 func (*Response) Descriptor() ([]byte, []int) {
-	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{2}
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Response) GetErrorCode() ErrorCode {
@@ -423,6 +525,66 @@ func (x *Response) GetChanged() bool {
 	return false
 }
 
+func (x *Response) GetFile() *FileResult {
+	if x != nil {
+		return x.File
+	}
+	return nil
+}
+
+type FileResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// False if the file does not exist; content is then empty.
+	Exists        bool   `protobuf:"varint,1,opt,name=exists,proto3" json:"exists,omitempty"`
+	Content       []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileResult) Reset() {
+	*x = FileResult{}
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileResult) ProtoMessage() {}
+
+func (x *FileResult) ProtoReflect() protoreflect.Message {
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileResult.ProtoReflect.Descriptor instead.
+func (*FileResult) Descriptor() ([]byte, []int) {
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *FileResult) GetExists() bool {
+	if x != nil {
+		return x.Exists
+	}
+	return false
+}
+
+func (x *FileResult) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
 var File_waystone_helper_v1_helper_proto protoreflect.FileDescriptor
 
 const file_waystone_helper_v1_helper_proto_rawDesc = "" +
@@ -430,32 +592,46 @@ const file_waystone_helper_v1_helper_proto_rawDesc = "" +
 	"\x1fwaystone/helper/v1/helper.proto\x12\x12waystone.helper.v1\"D\n" +
 	"\rProvisionSpec\x12\x18\n" +
 	"\aruntime\x18\x01 \x01(\tR\aruntime\x12\x19\n" +
-	"\bheap_mib\x18\x02 \x01(\rR\aheapMib\"\xbe\x01\n" +
+	"\bheap_mib\x18\x02 \x01(\rR\aheapMib\"\xf0\x01\n" +
 	"\aRequest\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12\x1b\n" +
 	"\tserver_id\x18\x02 \x01(\tR\bserverId\x122\n" +
 	"\x06action\x18\x03 \x01(\x0e2\x1a.waystone.helper.v1.ActionR\x06action\x12?\n" +
-	"\tprovision\x18\x04 \x01(\v2!.waystone.helper.v1.ProvisionSpecR\tprovision\"\xe5\x01\n" +
+	"\tprovision\x18\x04 \x01(\v2!.waystone.helper.v1.ProvisionSpecR\tprovision\x120\n" +
+	"\x04file\x18\x05 \x01(\v2\x1c.waystone.helper.v1.FileSpecR\x04file\"\x82\x01\n" +
+	"\bFileSpec\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent\x12#\n" +
+	"\rexpect_absent\x18\x03 \x01(\bR\fexpectAbsent\x12#\n" +
+	"\rexpect_sha256\x18\x04 \x01(\fR\fexpectSha256\"\x99\x02\n" +
 	"\bResponse\x12<\n" +
 	"\n" +
 	"error_code\x18\x01 \x01(\x0e2\x1d.waystone.helper.v1.ErrorCodeR\terrorCode\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x129\n" +
 	"\trun_state\x18\x03 \x01(\x0e2\x1c.waystone.helper.v1.RunStateR\brunState\x12!\n" +
 	"\fnative_state\x18\x04 \x01(\tR\vnativeState\x12\x18\n" +
-	"\achanged\x18\x05 \x01(\bR\achanged*l\n" +
+	"\achanged\x18\x05 \x01(\bR\achanged\x122\n" +
+	"\x04file\x18\x06 \x01(\v2\x1e.waystone.helper.v1.FileResultR\x04file\">\n" +
+	"\n" +
+	"FileResult\x12\x16\n" +
+	"\x06exists\x18\x01 \x01(\bR\x06exists\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent*\x99\x01\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fACTION_START\x10\x01\x12\x0f\n" +
 	"\vACTION_STOP\x10\x02\x12\x11\n" +
 	"\rACTION_STATUS\x10\x03\x12\x14\n" +
-	"\x10ACTION_PROVISION\x10\x04*\xb3\x01\n" +
+	"\x10ACTION_PROVISION\x10\x04\x12\x14\n" +
+	"\x10ACTION_READ_FILE\x10\x05\x12\x15\n" +
+	"\x11ACTION_WRITE_FILE\x10\x06*\xcb\x01\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cERROR_CODE_PERMISSION_DENIED\x10\x01\x12\x1e\n" +
 	"\x1aERROR_CODE_INVALID_REQUEST\x10\x02\x12\x18\n" +
 	"\x14ERROR_CODE_NOT_FOUND\x10\x03\x12\x15\n" +
 	"\x11ERROR_CODE_FAILED\x10\x04\x12\x17\n" +
-	"\x13ERROR_CODE_CONFLICT\x10\x05*\x99\x01\n" +
+	"\x13ERROR_CODE_CONFLICT\x10\x05\x12\x16\n" +
+	"\x12ERROR_CODE_CHANGED\x10\x06*\x99\x01\n" +
 	"\bRunState\x12\x19\n" +
 	"\x15RUN_STATE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11RUN_STATE_STOPPED\x10\x01\x12\x16\n" +
@@ -477,25 +653,29 @@ func file_waystone_helper_v1_helper_proto_rawDescGZIP() []byte {
 }
 
 var file_waystone_helper_v1_helper_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_waystone_helper_v1_helper_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_waystone_helper_v1_helper_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_waystone_helper_v1_helper_proto_goTypes = []any{
 	(Action)(0),           // 0: waystone.helper.v1.Action
 	(ErrorCode)(0),        // 1: waystone.helper.v1.ErrorCode
 	(RunState)(0),         // 2: waystone.helper.v1.RunState
 	(*ProvisionSpec)(nil), // 3: waystone.helper.v1.ProvisionSpec
 	(*Request)(nil),       // 4: waystone.helper.v1.Request
-	(*Response)(nil),      // 5: waystone.helper.v1.Response
+	(*FileSpec)(nil),      // 5: waystone.helper.v1.FileSpec
+	(*Response)(nil),      // 6: waystone.helper.v1.Response
+	(*FileResult)(nil),    // 7: waystone.helper.v1.FileResult
 }
 var file_waystone_helper_v1_helper_proto_depIdxs = []int32{
 	0, // 0: waystone.helper.v1.Request.action:type_name -> waystone.helper.v1.Action
 	3, // 1: waystone.helper.v1.Request.provision:type_name -> waystone.helper.v1.ProvisionSpec
-	1, // 2: waystone.helper.v1.Response.error_code:type_name -> waystone.helper.v1.ErrorCode
-	2, // 3: waystone.helper.v1.Response.run_state:type_name -> waystone.helper.v1.RunState
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 2: waystone.helper.v1.Request.file:type_name -> waystone.helper.v1.FileSpec
+	1, // 3: waystone.helper.v1.Response.error_code:type_name -> waystone.helper.v1.ErrorCode
+	2, // 4: waystone.helper.v1.Response.run_state:type_name -> waystone.helper.v1.RunState
+	7, // 5: waystone.helper.v1.Response.file:type_name -> waystone.helper.v1.FileResult
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_waystone_helper_v1_helper_proto_init() }
@@ -509,7 +689,7 @@ func file_waystone_helper_v1_helper_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_waystone_helper_v1_helper_proto_rawDesc), len(file_waystone_helper_v1_helper_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

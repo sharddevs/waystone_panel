@@ -96,22 +96,22 @@ func TestRouterProvisionErrors(t *testing.T) {
 }
 
 func TestNewRouterRuntime(t *testing.T) {
-	runner := &fakeRunner{}
-	r, err := NewRouter(RoleRuntime, runner)
+	runners := &fakeRunners{}
+	r, err := NewRouter(RoleRuntime, runners)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
-	if r.Provisioner != nil {
-		t.Error("the runtime role must not provision")
+	if r.Provisioner != nil || r.Worker != nil {
+		t.Error("the runtime role must not provision or run the worker")
 	}
-	if r.Systemd == nil || r.Systemd.Runner != Runner(runner) {
+	if r.Systemd == nil || r.Systemd.Runner != Runner(runners) {
 		t.Errorf("Systemd = %+v, want one using the given runner", r.Systemd)
 	}
 }
 
 func TestNewRouterProvision(t *testing.T) {
-	runner := &fakeRunner{}
-	r, err := NewRouter(RoleProvision, runner)
+	runners := &fakeRunners{}
+	r, err := NewRouter(RoleProvision, runners)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
@@ -122,23 +122,27 @@ func TestNewRouterProvision(t *testing.T) {
 	if p == nil {
 		t.Fatal("Provisioner is nil")
 	}
-	if p.Accounts != Accounts(SystemAccounts{Runner: runner}) {
+	if p.Accounts != Accounts(SystemAccounts{Runner: runners}) {
 		t.Errorf("Accounts = %#v", p.Accounts)
 	}
 	if p.Units != Units(UnitFiles{Dir: DefaultUnitDir}) {
 		t.Errorf("Units = %#v", p.Units)
 	}
-	if p.Runner != Runner(runner) {
+	if p.Runner != Runner(runners) {
 		t.Errorf("Runner = %#v", p.Runner)
 	}
 	if len(p.Runtimes) != len(DefaultRuntimes) || p.Runtimes["java25"] != DefaultRuntimes["java25"] {
 		t.Errorf("Runtimes = %v, want DefaultRuntimes", p.Runtimes)
 	}
+	want := Worker{Accounts: SystemAccounts{Runner: runners}, Runner: runners}
+	if r.Worker == nil || *r.Worker != want {
+		t.Errorf("Worker = %#v, want %#v", r.Worker, want)
+	}
 }
 
 func TestNewRouterUnknownRole(t *testing.T) {
 	for _, role := range []string{"", "Runtime", "provisioner", "both"} {
-		if _, err := NewRouter(role, &fakeRunner{}); err == nil {
+		if _, err := NewRouter(role, &fakeRunners{}); err == nil {
 			t.Errorf("NewRouter(%q): no error", role)
 		}
 	}

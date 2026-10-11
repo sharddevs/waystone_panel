@@ -21,6 +21,12 @@ enum Action {
   // Create what the server needs from the machine: its own user, its
   // directory and its service definition. Safe to repeat.
   ACTION_PROVISION = 4;
+  // Read one small file in the server's directory, as the server's own
+  // user. Game-neutral: what the file means is the agent's profile code.
+  ACTION_READ_FILE = 5;
+  // Replace one small file in the server's directory, as the server's own
+  // user, only if it still is what the agent read (see FileSpec).
+  ACTION_WRITE_FILE = 6;
 }
 
 // What a new server needs. Names and numbers only: the helper turns the
@@ -41,6 +47,23 @@ message Request {
   Action action = 3;
   // Required for ACTION_PROVISION and refused for every other action.
   ProvisionSpec provision = 4;
+  // Required for ACTION_READ_FILE and ACTION_WRITE_FILE, refused for
+  // every other action.
+  FileSpec file = 5;
+}
+
+// One file directly inside the server's directory.
+message FileSpec {
+  // A plain file name: 1 to 64 bytes of letters, digits, '.', '_' and '-',
+  // starting with a letter or digit. No paths.
+  string name = 1;
+  // ACTION_WRITE_FILE only: the new content, at most 48 KiB.
+  bytes content = 2;
+  // ACTION_WRITE_FILE only, exactly one of these two: the file must not
+  // exist, or its current content must have this SHA-256 (32 bytes).
+  // Otherwise nothing is written and the answer is ERROR_CODE_CHANGED.
+  bool expect_absent = 3;
+  bytes expect_sha256 = 4;
 }
 
 enum ErrorCode {
@@ -57,6 +80,9 @@ enum ErrorCode {
   // Something the action would create already exists and was not created
   // by Waystone for this server. Nothing was changed.
   ERROR_CODE_CONFLICT = 5;
+  // ACTION_WRITE_FILE: the file is no longer what the agent read. Nothing
+  // was written; read it again and decide again.
+  ERROR_CODE_CHANGED = 6;
 }
 
 // Run state as the panel understands it, independent of the runtime.
@@ -82,4 +108,12 @@ message Response {
   // Set only for ACTION_PROVISION: true if this request changed anything
   // on the machine, false if everything was already in place.
   bool changed = 5;
+  // Set only for ACTION_READ_FILE.
+  FileResult file = 6;
+}
+
+message FileResult {
+  // False if the file does not exist; content is then empty.
+  bool exists = 1;
+  bytes content = 2;
 }

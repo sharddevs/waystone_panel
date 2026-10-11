@@ -14,6 +14,7 @@ import (
 type Router struct {
 	Systemd     *Systemd
 	Provisioner *Provisioner
+	Worker      *Worker
 }
 
 // Handle implements Server.Handle.
@@ -62,6 +63,72 @@ func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 		}
 	}
 	switch cmd.Action {
+	case helperv1.Action_ACTION_READ_FILE:
+		if r.Worker == nil {
+			return &helperv1.Response{
+				ErrorCode:    helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST,
+				ErrorMessage: "file operations are not supported by this helper",
+			}
+		}
+
+		result, err := r.Worker.ReadFile(ctx, cmd)
+		if err != nil {
+			code := helperv1.ErrorCode_ERROR_CODE_FAILED
+
+			if errors.Is(err, ErrNotProvisioned) {
+				code = helperv1.ErrorCode_ERROR_CODE_NOT_FOUND
+			} else if errors.Is(err, ErrConflict) {
+				code = helperv1.ErrorCode_ERROR_CODE_CONFLICT
+			} else if errors.Is(err, ErrInvalidRequest) {
+				code = helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST
+			}
+
+			return &helperv1.Response{
+				ErrorCode:    code,
+				ErrorMessage: err.Error(),
+			}
+		}
+
+		return &helperv1.Response{
+			ErrorCode: helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED,
+			File: &helperv1.FileResult{
+				Exists:  result.Exists,
+				Content: result.Content,
+			},
+		}
+	case helperv1.Action_ACTION_WRITE_FILE:
+		if r.Worker == nil {
+			return &helperv1.Response{
+				ErrorCode:    helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST,
+				ErrorMessage: "file operations are not supported by this helper",
+			}
+		}
+
+		err := r.Worker.WriteFile(ctx, cmd)
+		if err != nil {
+			code := helperv1.ErrorCode_ERROR_CODE_FAILED
+
+			switch {
+			case errors.Is(err, ErrNotProvisioned):
+				code = helperv1.ErrorCode_ERROR_CODE_NOT_FOUND
+			case errors.Is(err, ErrChanged):
+				code = helperv1.ErrorCode_ERROR_CODE_CHANGED
+			case errors.Is(err, ErrConflict):
+				code = helperv1.ErrorCode_ERROR_CODE_CONFLICT
+			case errors.Is(err, ErrInvalidRequest):
+				code = helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST
+			}
+
+			return &helperv1.Response{
+				ErrorCode:    code,
+				ErrorMessage: err.Error(),
+			}
+		}
+
+		return &helperv1.Response{
+			ErrorCode: helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED,
+			Changed:   true,
+		}
 	case helperv1.Action_ACTION_START,
 		helperv1.Action_ACTION_STOP,
 		helperv1.Action_ACTION_STATUS:
@@ -97,7 +164,7 @@ const (
 //     Units UnitFiles{Dir: DefaultUnitDir}, Runner runner and
 //     Runtimes DefaultRuntimes.
 //   - Any other role: an error naming the role. The helper must not start.
-func NewRouter(role string, runner Runner) (Router, error) {
+func NewRouter(role string, runner Runners) (Router, error) {
 	switch role {
 	case RoleRuntime:
 		return Router{
@@ -117,7 +184,14 @@ func NewRouter(role string, runner Runner) (Router, error) {
 				Runner:   runner,
 				Runtimes: DefaultRuntimes,
 			},
+			Worker: &Worker{
+				Accounts: SystemAccounts{
+					Runner: runner,
+				},
+				Runner: runner,
+			},
 		}, nil
+
 	}
 
 	return Router{}, fmt.Errorf("unknown helper role %q", role)

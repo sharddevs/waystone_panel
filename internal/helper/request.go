@@ -18,6 +18,7 @@ type Command struct {
 	ServerID    string
 	Action      helperv1.Action
 	Spec        Spec
+	File        FileCommand
 }
 
 // ErrInvalidRequest wraps every validation failure.
@@ -47,6 +48,7 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 		return Command{}, fmt.Errorf("%w: invalid server ID: %v", ErrInvalidRequest, err)
 	}
 	var spec Spec
+	var file FileCommand
 	switch req.GetAction() {
 	case helperv1.Action_ACTION_START,
 		helperv1.Action_ACTION_STOP,
@@ -54,16 +56,36 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 		if req.GetProvision() != nil {
 			return Command{}, fmt.Errorf("%w: unexpected provision spec", ErrInvalidRequest)
 		}
+		if req.GetFile() != nil {
+			return Command{}, fmt.Errorf("%w: unexpected file spec", ErrInvalidRequest)
+		}
 	case helperv1.Action_ACTION_PROVISION:
 		if req.GetProvision() == nil {
 			return Command{}, fmt.Errorf("%w: missing provision spec", ErrInvalidRequest)
+		}
+		if req.GetFile() != nil {
+			return Command{}, fmt.Errorf("%w: unexpected file spec", ErrInvalidRequest)
 		}
 		var err error
 		spec, err = ValidateSpec(req.GetProvision())
 		if err != nil {
 			return Command{}, err
 		}
+	case helperv1.Action_ACTION_READ_FILE,
+		helperv1.Action_ACTION_WRITE_FILE:
 
+		if req.GetProvision() != nil {
+			return Command{}, fmt.Errorf(
+				"%w: unexpected provision spec",
+				ErrInvalidRequest,
+			)
+		}
+
+		var err error
+		file, err = ValidateFileSpec(req.GetAction(), req.GetFile())
+		if err != nil {
+			return Command{}, err
+		}
 	default:
 		return Command{}, fmt.Errorf("%w: unsupported action", ErrInvalidRequest)
 	}
@@ -72,6 +94,7 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 		ServerID:    req.GetServerId(),
 		Action:      req.GetAction(),
 		Spec:        spec,
+		File:        file,
 	}, nil
 }
 

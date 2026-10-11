@@ -103,13 +103,8 @@ func (SystemAccounts) Lookup(name string) (Account, error) {
 //     transient unit even when it failed.
 //   - Return the Runner's error wrapped with %w.
 func (a SystemAccounts) Create(ctx context.Context, name, comment string) error {
-	if len(name) != 15 || name[:3] != "ws-" {
-		return fmt.Errorf("%w: invalid server username", ErrInvalidRequest)
-	}
-	for _, ch := range name[3:] {
-		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
-			return fmt.Errorf("%w: invalid server username", ErrInvalidRequest)
-		}
+	if err := ValidateServerUser(name); err != nil {
+		return err
 	}
 	args := []string{
 		"--wait",

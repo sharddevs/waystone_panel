@@ -193,11 +193,8 @@ func (p Provisioner) Provision(ctx context.Context, serverID string, spec Spec) 
 			return false, fmt.Errorf("lookup created account: %w", err)
 		}
 	}
-	if account.Comment != comment {
-		return false, fmt.Errorf("%w: account ownership comment mismatch", ErrConflict)
-	}
-	if account.UID == 0 || account.UID > 999 {
-		return false, fmt.Errorf("%w: account UID outside system range", ErrConflict)
+	if err := validateAccount(account, serverID); err != nil {
+		return false, err
 	}
 	params := UnitParams{
 		ServerID:     serverID,
