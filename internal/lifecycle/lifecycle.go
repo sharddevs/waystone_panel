@@ -1,26 +1,29 @@
-// Package lifecycle is the agent's side of running a game server: it asks
-// the root helper and the provisioner to start, stop, provision and edit files.
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Package lifecycle is how the agent runs game servers. It doesn't do the
+// work itself; it asks the root helper and the provisioner over their sockets.
 package lifecycle
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 	"github.com/sharddevs/waystone_panel/internal/helper"
 )
 
-// Status is a server's run state plus systemd's own description of it
-// (like "active/running result=success"), which is handy in logs.
+// Status is a server's run state. Native is the runtime's own description
+// of it, only meant for logs and debugging.
 type Status struct {
 	State  helperv1.RunState
 	Native string
 }
 
 // Runtime is everything the agent can do to a game server. It's an
-// interface so callers can be tested with a fake.
+// interface so code that uses it can be tested with a fake.
 type Runtime interface {
 	Start(ctx context.Context, serverID, operationID string) error
 	Stop(ctx context.Context, serverID, operationID string) error
@@ -28,9 +31,11 @@ type Runtime interface {
 	Provision(ctx context.Context, serverID, operationID string, spec ProvisionSpec) (bool, error)
 	ReadFile(ctx context.Context, serverID, operationID, name string) (File, error)
 	WriteFile(ctx context.Context, serverID, operationID, name string, content []byte, base File) error
+	InstallFile(ctx context.Context, serverID, operationID, name string, content *os.File, sum [32]byte) error
 }
 
-// Errors for the helper's error codes. Check them with errors.Is.
+// These errors match the helper's error codes. Returned errors wrap them,
+// so check with errors.Is.
 var (
 	ErrPermissionDenied = errors.New("helper refused: permission denied")
 	ErrInvalidRequest   = errors.New("helper refused: invalid request")
@@ -38,19 +43,19 @@ var (
 	ErrFailed           = errors.New("action failed")
 )
 
-// HelperRuntime runs servers through the privileged helpers; the agent never
-// touches systemd itself. Client talks to the root helper (start, stop,
-// status), Provisioner to the provisioning service (provision, files).
+// HelperRuntime is the real Runtime. Client talks to the root helper
+// (start, stop, status) and Provisioner to the provisioner (provisioning
+// and files).
 type HelperRuntime struct {
 	Client      helper.Client
 	Provisioner helper.Client
 }
 
-// This line doesn't compile if HelperRuntime stops satisfying Runtime.
+// Assigning to _ makes the build fail if HelperRuntime ever stops
+// satisfying Runtime.
 var _ Runtime = HelperRuntime{}
 
-// do sends a start, stop or status action to the runtime helper. The error
-// handling is in send, which the provisioner's actions use too.
+// do sends a start, stop or status action to the root helper.
 func (h HelperRuntime) do(
 	ctx context.Context,
 	action helperv1.Action,
@@ -69,12 +74,23 @@ func (h HelperRuntime) send(
 	client helper.Client,
 	req *helperv1.Request,
 ) (*helperv1.Response, error) {
-	resp, err := client.Do(ctx, req)
+	return h.sendInput(ctx, client, req, nil)
+}
+
+// sendInput sends req to client, with input's descriptor attached if it
+// isn't nil, and turns the helper's error code into one of our errors.
+func (h HelperRuntime) sendInput(
+	ctx context.Context,
+	client helper.Client,
+	req *helperv1.Request,
+	input *os.File,
+) (*helperv1.Response, error) {
+	resp, err := client.DoInput(ctx, req, input)
 	if err != nil {
 		return nil, fmt.Errorf("could not reach helper: %w", err)
 	}
 
-	// %w wraps our sentinel error so callers can still use errors.Is.
+	// %w keeps the sentinel error inside, so errors.Is still finds it.
 	switch resp.GetErrorCode() {
 	case helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED:
 		return resp, nil
@@ -84,7 +100,7 @@ func (h HelperRuntime) send(
 
 	case helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST:
 		// The helper's message already starts with "invalid request: ",
-		// which would repeat our own error text.
+		// which would just repeat our own error text.
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRequest,
 			strings.TrimPrefix(resp.GetErrorMessage(), "invalid request: "))
 
@@ -100,7 +116,7 @@ func (h HelperRuntime) send(
 	case helperv1.ErrorCode_ERROR_CODE_FAILED:
 		return nil, fmt.Errorf("%w: %s", ErrFailed, resp.GetErrorMessage())
 
-	// A code we don't know is never treated as success.
+	// A code we don't know about must never count as success.
 	default:
 		return nil, fmt.Errorf("%w: unknown helper error code %d: %s",
 			ErrFailed, resp.GetErrorCode(), resp.GetErrorMessage())

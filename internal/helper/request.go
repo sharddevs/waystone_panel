@@ -1,16 +1,23 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package helper
 
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 )
 
-// Command is a request that passed validation. Only ValidateRequest
-// creates one, so code that receives a Command can trust its fields.
+// Command is a request that passed ValidateRequest, so the code that runs
+// it can trust its fields.
 type Command struct {
+	// Input is the file sent along with an INSTALL_FILE request and nil for
+	// every other action. The Server fills it in after CheckInput and
+	// closes it once the request is finished.
+	Input       *os.File
 	OperationID string
 	ServerID    string
 	Action      helperv1.Action
@@ -18,19 +25,19 @@ type Command struct {
 	File        FileCommand
 }
 
-// ErrInvalidRequest wraps every validation failure.
+// ErrInvalidRequest is wrapped by every validation error, so callers can
+// check for it with errors.Is.
 var ErrInvalidRequest = errors.New("invalid request")
 
-// ValidateRequest checks every field of req and returns the Command it asks
-// for. Each action must carry its own spec and nothing else. Errors wrap
-// ErrInvalidRequest (fmt.Errorf with %w, so errors.Is still finds it).
+// ValidateRequest checks every field of req and turns it into a Command.
+// Each action may carry only the spec that belongs to it.
 func ValidateRequest(req *helperv1.Request) (Command, error) {
 	if req == nil {
 		return Command{}, fmt.Errorf("%w: nil request", ErrInvalidRequest)
 	}
-	// Protobuf quietly keeps fields it doesn't know. That's wrong at a
-	// security boundary: a newer agent's extra field could be a restriction
-	// we would silently ignore, so we refuse instead.
+	// Protobuf silently keeps fields it doesn't know. At a root boundary
+	// that's risky: a field from a newer agent might be a restriction we'd
+	// ignore without noticing, so we refuse the request instead.
 	if len(req.ProtoReflect().GetUnknown()) != 0 {
 		return Command{}, fmt.Errorf("%w: unknown protobuf fields", ErrInvalidRequest)
 	}
@@ -65,7 +72,8 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 			return Command{}, err
 		}
 	case helperv1.Action_ACTION_READ_FILE,
-		helperv1.Action_ACTION_WRITE_FILE:
+		helperv1.Action_ACTION_WRITE_FILE,
+		helperv1.Action_ACTION_INSTALL_FILE:
 
 		if req.GetProvision() != nil {
 			return Command{}, fmt.Errorf(
@@ -91,20 +99,19 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 	}, nil
 }
 
-// PeerCred is the identity of the process on the other end of the socket,
-// as reported by the kernel.
+// PeerCred is who the kernel says is on the other end of the socket.
 type PeerCred struct {
 	UID uint32
 	GID uint32
 	PID int32
 }
 
-// ErrPermissionDenied is returned by Authorize.
+// ErrPermissionDenied is wrapped by the error Authorize returns.
 var ErrPermissionDenied = errors.New("permission denied")
 
-// Authorize allows only the agent's user, by uid. Group membership doesn't
-// count. A zero agentUID is a misconfiguration, so it allows nobody rather
-// than every root process. Errors wrap ErrPermissionDenied.
+// Authorize lets in only the agent's user, matched by uid; being in the
+// right group isn't enough. An agentUID of 0 means the helper was set up
+// wrong, so it lets in nobody instead of every root process.
 func Authorize(peer PeerCred, agentUID uint32) error {
 	if agentUID == 0 || peer.UID != agentUID {
 		return fmt.Errorf("%w: unauthorized caller", ErrPermissionDenied)
@@ -113,8 +120,8 @@ func Authorize(peer PeerCred, agentUID uint32) error {
 	return nil
 }
 
-// UnitName returns the systemd unit of a server, "waystone-srv-<id>.service".
-// serverID must already be validated.
+// UnitName returns the systemd unit name for a server,
+// "waystone-srv-<id>.service". serverID has to be validated already.
 func UnitName(serverID string) string {
 	return "waystone-srv-" + serverID + ".service"
 }

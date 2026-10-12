@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package helper
 
 import (
@@ -8,19 +10,18 @@ import (
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 )
 
-// Router sends each validated command to the code that performs it. A nil
-// field means this service doesn't perform those actions at all: the
-// runtime helper has no Provisioner or Worker, the provisioning service no
-// Systemd.
+// Router passes each validated Command to whatever performs it. A nil field
+// means this helper doesn't do those actions at all: the runtime helper only
+// has Systemd, and the provisioning helper has no Systemd.
 type Router struct {
 	Systemd     *Systemd
 	Provisioner *Provisioner
 	Worker      *Worker
 }
 
-// Handle has the signature of Server.Handle. An action this service
-// doesn't perform is answered with ERROR_CODE_INVALID_REQUEST and nothing
-// runs.
+// Handle runs cmd and turns the outcome into a response. It has the same
+// signature as Server.Handle, so it can be plugged straight in. An action
+// this helper doesn't do gets ERROR_CODE_INVALID_REQUEST and nothing runs.
 func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 	if cmd.Action == helperv1.Action_ACTION_PROVISION {
 		if r.Provisioner == nil {
@@ -92,7 +93,19 @@ func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 		}
 
 		return &helperv1.Response{}
+	case helperv1.Action_ACTION_INSTALL_FILE:
+		if r.Worker == nil {
+			return &helperv1.Response{
+				ErrorCode:    helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST,
+				ErrorMessage: "file operations are not supported by this helper",
+			}
+		}
 
+		if err := r.Worker.InstallFile(ctx, cmd); err != nil {
+			return fileErrorResponse(err)
+		}
+
+		return &helperv1.Response{}
 	case helperv1.Action_ACTION_START,
 		helperv1.Action_ACTION_STOP,
 		helperv1.Action_ACTION_STATUS:
@@ -114,15 +127,15 @@ func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 	}
 }
 
-// Roles of the waystone-helper binary, chosen with its -role flag. Each
-// role runs as its own systemd service with its own socket and sandbox.
+// The roles waystone-helper can run in, picked with its -role flag. Each
+// role is its own systemd service with its own socket.
 const (
 	RoleRuntime   = "runtime"   // waystone-helper.service: START, STOP, STATUS
-	RoleProvision = "provision" // waystone-provisioner.service: PROVISION, READ_FILE, WRITE_FILE
+	RoleProvision = "provision" // waystone-provisioner.service: PROVISION, file actions
 )
 
-// NewRouter returns the production Router for a role. An unknown role is
-// an error, and the helper should not start.
+// NewRouter builds the real Router for a role. An unknown role is an error,
+// and the helper shouldn't start with it.
 func NewRouter(role string, runner Runners) (Router, error) {
 	switch role {
 	case RoleRuntime:
@@ -156,8 +169,8 @@ func NewRouter(role string, runner Runners) (Router, error) {
 	return Router{}, fmt.Errorf("unknown helper role %q", role)
 }
 
-// fileErrorResponse turns an error from the Worker into a response with
-// the matching error code.
+// fileErrorResponse maps an error from the Worker to the matching error
+// code. Anything it doesn't recognize is ERROR_CODE_FAILED.
 func fileErrorResponse(err error) *helperv1.Response {
 	code := helperv1.ErrorCode_ERROR_CODE_FAILED
 

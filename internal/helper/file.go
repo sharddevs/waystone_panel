@@ -11,30 +11,32 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/worker"
 )
 
-// FileCommand is a FileSpec that passed validation. Content is a string,
-// not a []byte, so Command stays comparable and == works on it.
+// FileCommand is the checked form of a FileSpec. Content is a string rather
+// than a []byte so the struct stays comparable and tests can use == on it.
 type FileCommand struct {
-	Name    string
-	Content string
-	// Expect is set only for ACTION_WRITE_FILE.
+	// ContentSHA256 is the hash of the file to install (INSTALL_FILE only).
+	ContentSHA256 [sha256.Size]byte
+	Name          string
+	Content       string
+	// Expect is what the file must be right now (WRITE_FILE only).
 	Expect worker.Expect
 }
 
-// ErrChanged means a file is no longer what the agent read. The Router
-// answers it with ERROR_CODE_CHANGED.
+// ErrChanged means the file is no longer what the agent last read, so a
+// write was refused. The Router reports it as ERROR_CODE_CHANGED.
 var ErrChanged = errors.New("file changed since it was read")
 
-// ValidateFileSpec checks the file part of a READ_FILE or WRITE_FILE
-// request. Errors wrap ErrInvalidRequest. A write must carry exactly one
-// expectation (the file is absent, or has this SHA-256), so there is no
-// unconditional write.
+// ValidateFileSpec checks the file part of a READ_FILE, WRITE_FILE or
+// INSTALL_FILE request. Errors wrap ErrInvalidRequest. A write has to say
+// what it expects to replace (no file, or a file with a given SHA-256), so
+// the agent can never overwrite a file blindly.
 func ValidateFileSpec(action helperv1.Action, spec *helperv1.FileSpec) (FileCommand, error) {
 	if spec == nil {
 		return FileCommand{}, fmt.Errorf("%w: missing file spec", ErrInvalidRequest)
 	}
 
-	// ValidateRequest's unknown-field check doesn't look inside nested
-	// messages, so the spec needs its own.
+	// GetUnknown on the request only covers its own fields, not the ones
+	// of nested messages, so the spec is checked separately.
 	if len(spec.ProtoReflect().GetUnknown()) != 0 {
 		return FileCommand{}, fmt.Errorf("%w: unknown file fields", ErrInvalidRequest)
 	}
@@ -49,10 +51,12 @@ func ValidateFileSpec(action helperv1.Action, spec *helperv1.FileSpec) (FileComm
 
 	switch action {
 	case helperv1.Action_ACTION_READ_FILE:
-		// A read that carries data is a confused or forged request.
+		// A read has no business carrying data. If it does, something on
+		// the other side is confused, so refuse it.
 		if len(spec.GetContent()) != 0 ||
 			spec.GetExpectAbsent() ||
-			len(spec.GetExpectSha256()) != 0 {
+			len(spec.GetExpectSha256()) != 0 ||
+			len(spec.GetContentSha256()) != 0 {
 			return FileCommand{}, fmt.Errorf(
 				"%w: read requests cannot include content or expectations",
 				ErrInvalidRequest,
@@ -61,6 +65,12 @@ func ValidateFileSpec(action helperv1.Action, spec *helperv1.FileSpec) (FileComm
 
 		return cmd, nil
 	case helperv1.Action_ACTION_WRITE_FILE:
+		if len(spec.GetContentSha256()) != 0 {
+			return FileCommand{}, fmt.Errorf(
+				"%w: write requests cannot include installation hashes",
+				ErrInvalidRequest,
+			)
+		}
 		if len(spec.GetContent()) > worker.MaxFileBytes {
 			return FileCommand{}, fmt.Errorf(
 				"%w: file content exceeds size limit",
@@ -92,6 +102,25 @@ func ValidateFileSpec(action helperv1.Action, spec *helperv1.FileSpec) (FileComm
 		}
 
 		cmd.Content = string(spec.GetContent())
+		return cmd, nil
+	case helperv1.Action_ACTION_INSTALL_FILE:
+		if len(spec.GetContentSha256()) != sha256.Size {
+			return FileCommand{}, fmt.Errorf(
+				"%w: installation SHA-256 must be 32 bytes",
+				ErrInvalidRequest,
+			)
+		}
+
+		if len(spec.GetContent()) != 0 ||
+			spec.GetExpectAbsent() ||
+			len(spec.GetExpectSha256()) != 0 {
+			return FileCommand{}, fmt.Errorf(
+				"%w: install requests cannot include content or expectations",
+				ErrInvalidRequest,
+			)
+		}
+
+		copy(cmd.ContentSHA256[:], spec.GetContentSha256())
 		return cmd, nil
 	default:
 		return FileCommand{}, fmt.Errorf(

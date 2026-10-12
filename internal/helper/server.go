@@ -1,7 +1,10 @@
-// Package helper is the privileged root helper behind the agent's Unix
-// socket: framing, request validation, caller checks, and the systemd,
-// provisioning and file actions. The code is OS-neutral; the Linux-only
-// parts live in cmd/waystone-helper.
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Package helper is the root helper the agent talks to over a Unix socket:
+// the wire format, request checks, who may call, and the systemd,
+// provisioning and file actions. Only descriptor passing needs a Linux-only
+// file here; peer credentials and socket activation live in
+// cmd/waystone-helper.
 package helper
 
 import (
@@ -14,19 +17,21 @@ import (
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 )
 
-// ConnTimeout bounds how long one connection may take, so a stuck or
-// malicious client can't tie up the helper.
+// ConnTimeout limits how long one connection may last, so a slow or hostile
+// client can't hold on to the helper.
 const ConnTimeout = 60 * time.Second
 
-// Server answers one request per connection.
+// Server reads one request per connection, checks it and hands it to Handle.
 type Server struct {
-	// AgentUID is the only user allowed to make requests.
+	// AgentUID is the only uid allowed to send requests.
 	AgentUID uint32
-	// PeerCred asks the kernel who is on the other end of conn.
+	// PeerCred looks up the caller's credentials. It's a func field rather
+	// than a method so tests can pass in a fake.
 	PeerCred func(conn net.Conn) (PeerCred, error)
-	// Handle performs a validated command.
+	// Handle runs a command that passed every check (Router.Handle in
+	// production).
 	Handle func(ctx context.Context, cmd Command) *helperv1.Response
-	// Log receives one line per request. Nil means the standard logger.
+	// Log is where log lines go. If it's nil the standard logger is used.
 	Log *log.Logger
 }
 
@@ -39,12 +44,12 @@ func (s *Server) logf(format string, args ...any) {
 	log.Printf(format, args...)
 }
 
-// Serve accepts connections until l is closed, serving each one in its own
-// goroutine. It returns nil once l is closed (errors.Is(err, net.ErrClosed))
-// and any other accept error otherwise.
+// Serve accepts connections and serves each one in its own goroutine. It
+// returns nil when l is closed and the error for any other Accept failure.
 func (s *Server) Serve(l net.Listener) error {
-	// A buffered channel works as a semaphore: at most 16 connections are
-	// served at once, and we stop accepting while it's full.
+	// A buffered channel used as a semaphore: at most 16 connections are
+	// served at once. When it's full, the loop waits after Accept until one
+	// of them finishes.
 	sem := make(chan struct{}, 16)
 	for {
 		conn, err := l.Accept()
@@ -64,8 +69,9 @@ func (s *Server) Serve(l net.Listener) error {
 	}
 }
 
-// serveConn handles one connection: check the caller, read and validate the
-// request, run it and write the reply. A failed reply write is only logged.
+// serveConn handles one connection from start to finish. A refusal is sent
+// back as a response and also logged. If writing a response fails we can
+// only log it.
 func (s *Server) serveConn(conn net.Conn) {
 	defer conn.Close()
 
@@ -73,8 +79,8 @@ func (s *Server) serveConn(conn net.Conn) {
 		s.logf("failed to set connection deadline: %v", err)
 		return
 	}
-	// Check who is calling before reading anything. We never parse input
-	// from a caller we haven't authorized.
+	// Check who is calling before reading anything, so we never parse
+	// bytes from a caller we haven't authorized.
 	peer, err := s.PeerCred(conn)
 	if err != nil {
 		resp := &helperv1.Response{
@@ -109,12 +115,12 @@ func (s *Server) serveConn(conn net.Conn) {
 	}
 	req := new(helperv1.Request)
 
-	if err := ReadFrame(conn, req); err != nil {
+	input, err := readRequest(conn, req)
+	if err != nil {
 		resp := &helperv1.Response{
 			ErrorCode:    helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST,
 			ErrorMessage: "invalid request frame",
 		}
-
 		if writeErr := WriteFrame(conn, resp); writeErr != nil {
 			s.logf("failed to send invalid request response: %v", writeErr)
 		}
@@ -128,6 +134,11 @@ func (s *Server) serveConn(conn net.Conn) {
 		return
 	}
 	cmd, err := ValidateRequest(req)
+	// The deferred Close runs whenever serveConn returns, so the received
+	// descriptor is closed on every path below, refusals included.
+	if input != nil {
+		defer input.Close()
+	}
 	if err != nil {
 		resp := &helperv1.Response{
 			ErrorCode:    helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST,
@@ -146,6 +157,26 @@ func (s *Server) serveConn(conn net.Conn) {
 		)
 		return
 	}
+	if err := CheckInput(cmd.Action, input); err != nil {
+		resp := &helperv1.Response{
+			ErrorCode:    helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST,
+			ErrorMessage: err.Error(),
+		}
+
+		if writeErr := WriteFrame(conn, resp); writeErr != nil {
+			s.logf("failed to send invalid input response: %v", writeErr)
+		}
+
+		s.logf(
+			"invalid input: uid=%d pid=%d: %v",
+			peer.UID,
+			peer.PID,
+			err,
+		)
+		return
+	}
+
+	cmd.Input = input
 	ctx, cancel := context.WithTimeout(context.Background(), ConnTimeout)
 	defer cancel()
 
@@ -167,7 +198,7 @@ func (s *Server) serveConn(conn net.Conn) {
 		s.logf("failed to send response: %v", err)
 	}
 
-	// This line is the audit trail in journald.
+	// This line is the audit record that ends up in journald.
 	s.logf(
 		"operation=%s server=%s action=%s uid=%d result=%s error=%q",
 		cmd.OperationID,

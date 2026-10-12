@@ -47,6 +47,13 @@ const (
 	// Replace one small file in the server's directory, as the server's own
 	// user, only if it still is what the agent read (see FileSpec).
 	Action_ACTION_WRITE_FILE Action = 6
+	// Replace one file in the server's directory, as the server's own user,
+	// with the content of the file descriptor sent along with this request
+	// (SCM_RIGHTS). The descriptor must be a regular file of at most 256 MiB,
+	// and the content must have FileSpec.content_sha256. Unconditional: the
+	// agent owns the files it installs. Game-neutral like the other file
+	// actions; the profile picks the name.
+	Action_ACTION_INSTALL_FILE Action = 7
 )
 
 // Enum value maps for Action.
@@ -59,15 +66,17 @@ var (
 		4: "ACTION_PROVISION",
 		5: "ACTION_READ_FILE",
 		6: "ACTION_WRITE_FILE",
+		7: "ACTION_INSTALL_FILE",
 	}
 	Action_value = map[string]int32{
-		"ACTION_UNSPECIFIED": 0,
-		"ACTION_START":       1,
-		"ACTION_STOP":        2,
-		"ACTION_STATUS":      3,
-		"ACTION_PROVISION":   4,
-		"ACTION_READ_FILE":   5,
-		"ACTION_WRITE_FILE":  6,
+		"ACTION_UNSPECIFIED":  0,
+		"ACTION_START":        1,
+		"ACTION_STOP":         2,
+		"ACTION_STATUS":       3,
+		"ACTION_PROVISION":    4,
+		"ACTION_READ_FILE":    5,
+		"ACTION_WRITE_FILE":   6,
+		"ACTION_INSTALL_FILE": 7,
 	}
 )
 
@@ -295,8 +304,8 @@ type Request struct {
 	Action   Action `protobuf:"varint,3,opt,name=action,proto3,enum=waystone.helper.v1.Action" json:"action,omitempty"`
 	// Required for ACTION_PROVISION and refused for every other action.
 	Provision *ProvisionSpec `protobuf:"bytes,4,opt,name=provision,proto3" json:"provision,omitempty"`
-	// Required for ACTION_READ_FILE and ACTION_WRITE_FILE, refused for
-	// every other action.
+	// Required for ACTION_READ_FILE, ACTION_WRITE_FILE and
+	// ACTION_INSTALL_FILE, refused for every other action.
 	File          *FileSpec `protobuf:"bytes,5,opt,name=file,proto3" json:"file,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -378,8 +387,12 @@ type FileSpec struct {
 	// ACTION_WRITE_FILE only, exactly one of these two: the file must not
 	// exist, or its current content must have this SHA-256 (32 bytes).
 	// Otherwise nothing is written and the answer is ERROR_CODE_CHANGED.
-	ExpectAbsent  bool   `protobuf:"varint,3,opt,name=expect_absent,json=expectAbsent,proto3" json:"expect_absent,omitempty"`
-	ExpectSha256  []byte `protobuf:"bytes,4,opt,name=expect_sha256,json=expectSha256,proto3" json:"expect_sha256,omitempty"`
+	ExpectAbsent bool   `protobuf:"varint,3,opt,name=expect_absent,json=expectAbsent,proto3" json:"expect_absent,omitempty"`
+	ExpectSha256 []byte `protobuf:"bytes,4,opt,name=expect_sha256,json=expectSha256,proto3" json:"expect_sha256,omitempty"`
+	// ACTION_INSTALL_FILE only, and required there: the SHA-256 (32 bytes)
+	// the installed content must have. Otherwise nothing is installed and the
+	// answer is ERROR_CODE_FAILED.
+	ContentSha256 []byte `protobuf:"bytes,5,opt,name=content_sha256,json=contentSha256,proto3" json:"content_sha256,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -438,6 +451,13 @@ func (x *FileSpec) GetExpectAbsent() bool {
 func (x *FileSpec) GetExpectSha256() []byte {
 	if x != nil {
 		return x.ExpectSha256
+	}
+	return nil
+}
+
+func (x *FileSpec) GetContentSha256() []byte {
+	if x != nil {
+		return x.ContentSha256
 	}
 	return nil
 }
@@ -598,12 +618,13 @@ const file_waystone_helper_v1_helper_proto_rawDesc = "" +
 	"\tserver_id\x18\x02 \x01(\tR\bserverId\x122\n" +
 	"\x06action\x18\x03 \x01(\x0e2\x1a.waystone.helper.v1.ActionR\x06action\x12?\n" +
 	"\tprovision\x18\x04 \x01(\v2!.waystone.helper.v1.ProvisionSpecR\tprovision\x120\n" +
-	"\x04file\x18\x05 \x01(\v2\x1c.waystone.helper.v1.FileSpecR\x04file\"\x82\x01\n" +
+	"\x04file\x18\x05 \x01(\v2\x1c.waystone.helper.v1.FileSpecR\x04file\"\xa9\x01\n" +
 	"\bFileSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12#\n" +
 	"\rexpect_absent\x18\x03 \x01(\bR\fexpectAbsent\x12#\n" +
-	"\rexpect_sha256\x18\x04 \x01(\fR\fexpectSha256\"\x99\x02\n" +
+	"\rexpect_sha256\x18\x04 \x01(\fR\fexpectSha256\x12%\n" +
+	"\x0econtent_sha256\x18\x05 \x01(\fR\rcontentSha256\"\x99\x02\n" +
 	"\bResponse\x12<\n" +
 	"\n" +
 	"error_code\x18\x01 \x01(\x0e2\x1d.waystone.helper.v1.ErrorCodeR\terrorCode\x12#\n" +
@@ -615,7 +636,7 @@ const file_waystone_helper_v1_helper_proto_rawDesc = "" +
 	"\n" +
 	"FileResult\x12\x16\n" +
 	"\x06exists\x18\x01 \x01(\bR\x06exists\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\fR\acontent*\x99\x01\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent*\xb2\x01\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fACTION_START\x10\x01\x12\x0f\n" +
@@ -623,7 +644,8 @@ const file_waystone_helper_v1_helper_proto_rawDesc = "" +
 	"\rACTION_STATUS\x10\x03\x12\x14\n" +
 	"\x10ACTION_PROVISION\x10\x04\x12\x14\n" +
 	"\x10ACTION_READ_FILE\x10\x05\x12\x15\n" +
-	"\x11ACTION_WRITE_FILE\x10\x06*\xcb\x01\n" +
+	"\x11ACTION_WRITE_FILE\x10\x06\x12\x17\n" +
+	"\x13ACTION_INSTALL_FILE\x10\a*\xcb\x01\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cERROR_CODE_PERMISSION_DENIED\x10\x01\x12\x1e\n" +

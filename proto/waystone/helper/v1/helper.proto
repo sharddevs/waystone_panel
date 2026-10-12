@@ -27,6 +27,13 @@ enum Action {
   // Replace one small file in the server's directory, as the server's own
   // user, only if it still is what the agent read (see FileSpec).
   ACTION_WRITE_FILE = 6;
+  // Replace one file in the server's directory, as the server's own user,
+  // with the content of the file descriptor sent along with this request
+  // (SCM_RIGHTS). The descriptor must be a regular file of at most 256 MiB,
+  // and the content must have FileSpec.content_sha256. Unconditional: the
+  // agent owns the files it installs. Game-neutral like the other file
+  // actions; the profile picks the name.
+  ACTION_INSTALL_FILE = 7;
 }
 
 // What a new server needs. Names and numbers only: the helper turns the
@@ -47,8 +54,8 @@ message Request {
   Action action = 3;
   // Required for ACTION_PROVISION and refused for every other action.
   ProvisionSpec provision = 4;
-  // Required for ACTION_READ_FILE and ACTION_WRITE_FILE, refused for
-  // every other action.
+  // Required for ACTION_READ_FILE, ACTION_WRITE_FILE and
+  // ACTION_INSTALL_FILE, refused for every other action.
   FileSpec file = 5;
 }
 
@@ -64,6 +71,10 @@ message FileSpec {
   // Otherwise nothing is written and the answer is ERROR_CODE_CHANGED.
   bool expect_absent = 3;
   bytes expect_sha256 = 4;
+  // ACTION_INSTALL_FILE only, and required there: the SHA-256 (32 bytes)
+  // the installed content must have. Otherwise nothing is installed and the
+  // answer is ERROR_CODE_FAILED.
+  bytes content_sha256 = 5;
 }
 
 enum ErrorCode {
