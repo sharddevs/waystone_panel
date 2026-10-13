@@ -154,7 +154,7 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 	result := make([]serverJSON, 0, len(servers))
 
 	for _, server := range servers {
-		result = append(result, toServerJSON(server))
+		result = append(result, toServerJSON(server, a.now()))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

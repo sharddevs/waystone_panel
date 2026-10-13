@@ -45,7 +45,15 @@ type dimensionJSON struct {
 	State      string     `json:"state"`
 	Since      *time.Time `json:"since"`
 	ObservedAt *time.Time `json:"observed_at"`
+	// LastReported is the stored state when State says "unknown" only
+	// because the last report is too old (R13).
+	LastReported string `json:"last_reported,omitempty"`
 }
+
+// StaleAfter is how old the last accepted observation may be before the
+// API shows a state as unknown (decision M, R13). It is measured from the
+// controller's receipt time, never from the agent's clock.
+const StaleAfter = 45 * time.Second
 
 type serverJSON struct {
 	ID           string        `json:"id"`
@@ -82,14 +90,25 @@ func toOperationJSON(op store.Operation) operationJSON {
 	return out
 }
 
-func toServerJSON(s store.Server) serverJSON {
+// toServerJSON converts a server for the API. A process state whose last
+// accepted observation is missing or older than StaleAfter at now is shown
+// as "unknown", with the stored value in last_reported. The database keeps
+// the real value; only the response says unknown.
+func toServerJSON(s store.Server, now time.Time) serverJSON {
+	process := dimensionJSON{State: s.ProcessState, Since: s.ProcessSince, ObservedAt: s.ProcessObservedAt}
+	if s.ProcessObservedAt == nil || now.Sub(*s.ProcessObservedAt) > StaleAfter {
+		if process.State != string(store.ProcessUnknown) {
+			process.LastReported = process.State
+		}
+		process.State = string(store.ProcessUnknown)
+	}
 	return serverJSON{
 		ID:           s.ID,
 		NodeID:       s.NodeID,
 		Name:         s.Name,
 		Profile:      s.Profile,
 		DesiredState: s.DesiredState,
-		Process:      dimensionJSON{State: s.ProcessState, Since: s.ProcessSince, ObservedAt: s.ProcessObservedAt},
+		Process:      process,
 		Readiness:    dimensionJSON{State: s.Readiness, Since: s.ReadinessSince, ObservedAt: s.ReadinessObservedAt},
 	}
 }

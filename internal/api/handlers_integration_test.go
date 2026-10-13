@@ -293,7 +293,8 @@ func TestRoleDeniedIsAudited(t *testing.T) {
 
 func TestListServers(t *testing.T) {
 	e := setup(t)
-	seen := time.Date(2026, 10, 13, 11, 0, 0, 0, time.UTC)
+	// Observed 30 s before the clock, so it is still fresh (R13).
+	seen := e.now.Add(-30 * time.Second)
 	mustExec(t, e.owner, `UPDATE waystone.servers SET process_state = 'running', process_since = $1, process_observed_at = $1 WHERE server_id = $2`, seen, serverA2)
 
 	var body struct {
@@ -425,5 +426,57 @@ func TestListDenialResource(t *testing.T) {
 	want := []string{"operation.list server:" + serverA1, "operation.list server:*"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("audit rows = %q, want %q", got, want)
+	}
+}
+
+// R13: a process state is shown as unknown once its last accepted
+// observation is more than 45 s old (or missing), and the stored value is
+// kept in last_reported. The database row is never rewritten.
+func TestServerStaleness(t *testing.T) {
+	e := setup(t)
+	get := func() serverJSON {
+		t.Helper()
+		var body struct {
+			Servers []serverJSON `json:"servers"`
+		}
+		wantOK(t, e.do(t, req{method: "GET", path: "/api/v1/servers", uid: uidAdminA}), http.StatusOK, &body)
+		for _, s := range body.Servers {
+			if s.ID == serverA2 {
+				return s
+			}
+		}
+		t.Fatalf("a2 missing from %+v", body.Servers)
+		return serverJSON{}
+	}
+	set := func(observed time.Time) {
+		t.Helper()
+		mustExec(t, e.owner, `UPDATE waystone.servers SET process_state = 'running', process_since = $1, process_observed_at = $1 WHERE server_id = $2`, observed, serverA2)
+	}
+
+	// Never reported: unknown, and nothing to show as last reported.
+	if s := get(); s.Process.State != "unknown" || s.Process.LastReported != "" {
+		t.Errorf("never reported: %+v", s.Process)
+	}
+
+	// Exactly 45 s old is still fresh.
+	set(e.now.Add(-45 * time.Second))
+	if s := get(); s.Process.State != "running" || s.Process.LastReported != "" {
+		t.Errorf("45 s old: %+v", s.Process)
+	}
+
+	// 46 s old is stale.
+	set(e.now.Add(-46 * time.Second))
+	s := get()
+	if s.Process.State != "unknown" || s.Process.LastReported != "running" ||
+		s.Process.ObservedAt == nil || !s.Process.ObservedAt.Equal(e.now.Add(-46*time.Second)) {
+		t.Errorf("46 s old: %+v", s.Process)
+	}
+	var stored string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT process_state FROM waystone.servers WHERE server_id = $1`, serverA2).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != "running" {
+		t.Errorf("stored process_state = %q, want running (never rewritten)", stored)
 	}
 }
