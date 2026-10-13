@@ -33,6 +33,32 @@ type Denial struct {
 // denial, return nil from the InTenantTx callback and report the refusal
 // some other way. Returning an error would roll the audit row back too.
 func (t *Tx) RecordDenial(ctx context.Context, d Denial) error {
+	return t.insertAudit(ctx, d, "denied")
+}
+
+// RecordChurn adds one audit_events row with outcome "flagged" for a node
+// whose sessions are being taken over too often (C4). Only a node actor
+// may call it (ErrNotNode otherwise), and the table's CHECK refuses a
+// flagged row from anyone else too. epoch is the session that tipped the
+// count over, so the row can be matched with the controller's log.
+//
+// Like RecordDenial, the row only stays if the transaction commits.
+func (t *Tx) RecordChurn(ctx context.Context, epoch int64) error {
+	if err := t.requireNode(); err != nil {
+		return err
+	}
+
+	return t.insertAudit(ctx, Denial{
+		Action:       "node.session_churn",
+		ResourceType: "node",
+		ResourceID:   t.Actor().ID,
+		Reason:       "too_many_takeovers",
+		RequestID:    fmt.Sprintf("epoch-%d", epoch),
+	}, "flagged")
+}
+
+// insertAudit checks the fields and writes one row with the given outcome.
+func (t *Tx) insertAudit(ctx context.Context, d Denial, outcome string) error {
 	fields := []string{
 		d.Action,
 		d.ResourceType,
@@ -79,7 +105,7 @@ func (t *Tx) RecordDenial(ctx context.Context, d Denial) error {
 	)
 	VALUES (
 		$1, $2, $3, $4, $5, $6,
-		$7, $8, $9, $10, 'denied', $11
+		$7, $8, $9, $10, $11, $12
 	)
 `,
 		t.TenantID(),
@@ -92,10 +118,11 @@ func (t *Tx) RecordDenial(ctx context.Context, d Denial) error {
 		d.ResourceID,
 		d.Reason,
 		d.RequestID,
+		outcome,
 		t.Now(),
 	)
 	if err != nil {
-		return fmt.Errorf("record denial: %w", err)
+		return fmt.Errorf("record audit event: %w", err)
 	}
 
 	return nil

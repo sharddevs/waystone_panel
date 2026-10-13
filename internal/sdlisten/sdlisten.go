@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // firstFD is the first descriptor systemd passes (SD_LISTEN_FDS_START).
@@ -57,4 +58,64 @@ func Listener(name string, pid int, getenv func(string) string) (net.Listener, e
 		return nil, errors.New(name + ": the socket systemd passed is not a Unix socket")
 	}
 	return l, nil
+}
+
+// maxNamed bounds how many named sockets Listeners takes over.
+const maxNamed = 8
+
+// Listeners returns every Unix socket systemd passed to this process, by
+// the names in LISTEN_FDNAMES (each socket unit's FileDescriptorName=).
+// It is for a service with more than one socket, like the controller's
+// API and agent sockets. Every name must be present, non-empty and
+// unique; anything off and nothing is returned (all descriptors closed).
+func Listeners(pid int, getenv func(string) string) (map[string]net.Listener, error) {
+	listenPID, err := strconv.Atoi(getenv("LISTEN_PID"))
+	if err != nil {
+		return nil, fmt.Errorf("not socket-activated (LISTEN_PID: %w)", err)
+	}
+	if listenPID != pid {
+		return nil, fmt.Errorf("LISTEN_PID is %d, this process is %d", listenPID, pid)
+	}
+	n, err := strconv.Atoi(getenv("LISTEN_FDS"))
+	if err != nil {
+		return nil, fmt.Errorf("LISTEN_FDS: %w", err)
+	}
+	if n < 1 || n > maxNamed {
+		return nil, fmt.Errorf("expected 1 to %d sockets from systemd, got %d", maxNamed, n)
+	}
+	names := strings.Split(getenv("LISTEN_FDNAMES"), ":")
+	if len(names) != n {
+		return nil, fmt.Errorf("LISTEN_FDNAMES has %d names for %d sockets", len(names), n)
+	}
+
+	out := make(map[string]net.Listener, n)
+	closeAll := func() {
+		for _, l := range out {
+			l.Close()
+		}
+	}
+	for i, name := range names {
+		if name == "" || out[name] != nil {
+			closeAll()
+			return nil, fmt.Errorf("socket name %q is empty or repeated", name)
+		}
+		f := os.NewFile(uintptr(firstFD+i), name)
+		if f == nil {
+			closeAll()
+			return nil, fmt.Errorf("%s: descriptor %d is not open", name, firstFD+i)
+		}
+		l, err := net.FileListener(f)
+		f.Close()
+		if err != nil {
+			closeAll()
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		if _, ok := l.(*net.UnixListener); !ok {
+			l.Close()
+			closeAll()
+			return nil, errors.New(name + ": the socket systemd passed is not a Unix socket")
+		}
+		out[name] = l
+	}
+	return out, nil
 }

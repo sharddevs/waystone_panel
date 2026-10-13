@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+syntax = "proto3";
+
+// Protocol between a node's agent and the controller. The agent dials out
+// and keeps one long-lived stream open. On that stream it says hello once,
+// then reports what it observed on its servers.
+//
+// The controller trusts nothing in these messages about who is talking:
+// the node comes from its own configuration, and the peer's uid from the
+// kernel. A report only describes observations, never commands.
+package waystone.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/sharddevs/waystone_panel/gen/waystone/agent/v1;agentv1";
+
+service AgentLinkService {
+  // One stream per agent. The first message must be a Hello; everything
+  // after it must be a Report.
+  rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
+}
+
+// What the agent sends.
+message ConnectRequest {
+  oneof msg {
+    Hello hello = 1;
+    Report report = 2;
+  }
+}
+
+// What the controller sends. Room for the commands of stage 4c, without
+// changing the stream.
+message ConnectResponse {
+  oneof msg {
+    HelloReply hello_reply = 1;
+  }
+}
+
+message Hello {
+  // Compared against the controller's configured node, never used as an
+  // identity on its own.
+  string node_id = 1;
+  string agent_version = 2;
+}
+
+message HelloReply {
+  // The session's epoch. Every Report must carry it.
+  int64 epoch = 1;
+  // The servers on this node at the time of the hello.
+  repeated string server_ids = 2;
+  uint32 report_interval_seconds = 3;
+}
+
+message Report {
+  int64 epoch = 1;
+  // Starts at 1 for each session and must always increase.
+  int64 seq = 2;
+  google.protobuf.Timestamp agent_time = 3;
+  repeated ReportEntry entries = 4;
+}
+
+message ReportEntry {
+  string server_id = 1;
+  ProcessState process_state = 2;
+  // Diagnostic only, at most 32 bytes. Never drives a decision.
+  string native_state = 3;
+}
+
+enum ProcessState {
+  PROCESS_STATE_UNSPECIFIED = 0;
+  PROCESS_STATE_STOPPED = 1;
+  PROCESS_STATE_STARTING = 2;
+  PROCESS_STATE_RUNNING = 3;
+  PROCESS_STATE_STOPPING = 4;
+  PROCESS_STATE_FAILED = 5;
+  // The agent couldn't find out. native_state says why.
+  PROCESS_STATE_UNKNOWN = 6;
+}

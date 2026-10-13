@@ -94,10 +94,10 @@ func TestListenDevRefusesExistingPath(t *testing.T) {
 	}
 }
 
-// With -api-socket, apiListener is dev mode and ignores activation.
+// With -api-socket, listeners is dev mode and ignores activation.
 func TestAPIListenerDevMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "api.sock")
-	l, err := apiListener(path, 4242, func(string) string { return "" })
+	l, _, err := listeners(path, "", 4242, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -43,10 +43,10 @@ func TestNewServerLimits(t *testing.T) {
 // It must never fall back to opening a socket (or a TCP port) of its own.
 func TestAPIListenerNeedsActivation(t *testing.T) {
 	noEnv := func(string) string { return "" }
-	l, err := apiListener("", 4242, noEnv)
+	l, _, err := listeners("", "", 4242, noEnv)
 	if err == nil {
 		l.Close()
-		t.Fatalf("apiListener with no socket path and no activation = %v, want an error", l.Addr())
+		t.Fatalf("listeners with no socket path and no activation = %v, want an error", l.Addr())
 	}
 }
 
