@@ -20,6 +20,10 @@ type Config struct {
 	Lookup  LookupName       // uid to login name; nil means the passwd database
 	Log     *log.Logger      // nil means log.Default()
 	Now     func() time.Time // clock for the rate limit; nil means time.Now
+	// OnOperation, if set, is called with each new operation once it has
+	// committed, never for a replay. The controller uses it to wake the
+	// node's agent session (4c, Q7). It must not block.
+	OnOperation func(store.Operation)
 }
 
 // API holds what the handlers share.
@@ -30,6 +34,8 @@ type API struct {
 	log     *log.Logger
 	now     func() time.Time
 	limiter *rateLimiter
+
+	onOperation func(store.Operation)
 }
 
 func (a *API) logf(format string, args ...any) { a.log.Printf(format, args...) }
@@ -71,6 +77,8 @@ func New(cfg Config) http.Handler {
 		log:     cfg.Log,
 		now:     cfg.Now,
 		limiter: newRateLimiter(RateLimit, RateWindow),
+
+		onOperation: cfg.OnOperation,
 	}
 
 	mux := http.NewServeMux()

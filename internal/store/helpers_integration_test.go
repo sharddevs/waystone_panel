@@ -95,6 +95,9 @@ func setup(t *testing.T) *env {
 		t.Fatalf("connect as owner: %v", err)
 	}
 	t.Cleanup(func() { owner.Close(context.Background()) })
+	// Fixtures move operations by hand, which the 4c guard allows the
+	// owner only with the override on. The history rules still apply.
+	mustExec(t, owner, `SET waystone.owner_override = 'on'`)
 	mustExec(t, owner, `DROP SCHEMA IF EXISTS waystone CASCADE`)
 	mustExec(t, owner, `DROP SCHEMA IF EXISTS waystone_meta CASCADE`)
 	mustExec(t, owner, `CREATE SCHEMA waystone`)
@@ -185,8 +188,8 @@ func (e *env) create(actor Actor, in CreateOperationInput) (Operation, bool, err
 	return op, replayed, err
 }
 
-// setState moves an operation as the owner, through the same trigger the
-// controller is subject to.
+// setState moves an operation as the owner, with the override on: the
+// history rules still apply, the per-actor rules don't.
 func (e *env) setState(t *testing.T, opID string, states ...OperationState) {
 	t.Helper()
 	for _, s := range states {

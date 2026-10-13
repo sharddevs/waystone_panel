@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 	"github.com/sharddevs/waystone_panel/internal/ids"
@@ -23,6 +24,9 @@ type Command struct {
 	Action      helperv1.Action
 	Spec        Spec
 	File        FileCommand
+	// NotAfter is the sender's deadline for START and STOP, zero for every
+	// other action. The action must not begin after it.
+	NotAfter time.Time
 }
 
 // ErrInvalidRequest is wrapped by every validation error, so callers can
@@ -46,6 +50,19 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 	}
 	if err := ids.Check(req.GetServerId()); err != nil {
 		return Command{}, fmt.Errorf("%w: invalid server ID: %v", ErrInvalidRequest, err)
+	}
+	// START and STOP must say when the sender gives up; nothing else may.
+	var notAfter time.Time
+	switch req.GetAction() {
+	case helperv1.Action_ACTION_START, helperv1.Action_ACTION_STOP:
+		if req.GetNotAfterUnixMs() <= 0 {
+			return Command{}, fmt.Errorf("%w: missing deadline", ErrInvalidRequest)
+		}
+		notAfter = time.UnixMilli(req.GetNotAfterUnixMs())
+	default:
+		if req.GetNotAfterUnixMs() != 0 {
+			return Command{}, fmt.Errorf("%w: unexpected deadline", ErrInvalidRequest)
+		}
 	}
 	var spec Spec
 	var file FileCommand
@@ -96,6 +113,7 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 		Action:      req.GetAction(),
 		Spec:        spec,
 		File:        file,
+		NotAfter:    notAfter,
 	}, nil
 }
 

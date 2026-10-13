@@ -82,6 +82,7 @@ type env struct {
 	owner *pgx.Conn
 	store *store.Store
 	srv   *Server
+	cc    agentv1.AgentLinkServiceClient // shared by e.session, which may open many streams
 	path  string
 	logs  *syncBuffer
 }
@@ -99,6 +100,9 @@ func setupDB(t *testing.T) (*pgx.Conn, *store.Store) {
 		t.Fatalf("connect as owner: %v", err)
 	}
 	t.Cleanup(func() { owner.Close(context.Background()) })
+	// Fixtures move operations by hand, which the 4c guard allows the
+	// owner only with the override on. The history rules still apply.
+	mustExec(t, owner, `SET waystone.owner_override = 'on'`)
 	for _, q := range []string{
 		`DROP SCHEMA IF EXISTS waystone CASCADE`,
 		`DROP SCHEMA IF EXISTS waystone_meta CASCADE`,

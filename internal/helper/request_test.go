@@ -3,6 +3,7 @@ package helper
 import (
 	"errors"
 	"testing"
+	"time"
 
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -13,8 +14,17 @@ const (
 	testServerID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
 )
 
+// testNotAfter is a deadline far in the future, in Unix milliseconds.
+const testNotAfter = int64(4102444800000) // 2100-01-01
+
+// validRequest is a minimal valid request. START and STOP carry a
+// deadline, which they require (stage 4c, S3).
 func validRequest(action helperv1.Action) *helperv1.Request {
-	return &helperv1.Request{OperationId: testOpID, ServerId: testServerID, Action: action}
+	req := &helperv1.Request{OperationId: testOpID, ServerId: testServerID, Action: action}
+	if action == helperv1.Action_ACTION_START || action == helperv1.Action_ACTION_STOP {
+		req.NotAfterUnixMs = testNotAfter
+	}
+	return req
 }
 
 func TestValidateRequestAccepts(t *testing.T) {
@@ -29,6 +39,9 @@ func TestValidateRequestAccepts(t *testing.T) {
 			continue
 		}
 		want := Command{OperationID: testOpID, ServerID: testServerID, Action: action}
+		if action != helperv1.Action_ACTION_STATUS {
+			want.NotAfter = time.UnixMilli(testNotAfter)
+		}
 		if cmd != want {
 			t.Errorf("%v: got %+v, want %+v", action, cmd, want)
 		}

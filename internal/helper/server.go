@@ -18,8 +18,10 @@ import (
 )
 
 // ConnTimeout limits how long one connection may last, so a slow or hostile
-// client can't hold on to the helper.
-const ConnTimeout = 60 * time.Second
+// client can't hold on to the helper. It is longer than a server unit's
+// TimeoutStopSec (60 s), so a stop that needs the whole minute to save the
+// world still gets its answer back (stage 4c, Q2).
+const ConnTimeout = 90 * time.Second
 
 // Server reads one request per connection, checks it and hands it to Handle.
 type Server struct {

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package agent is the node side of the agent link (stage 4b-2): it dials
-// the controller, says hello, and every report interval asks the helper
-// for each server's STATUS and reports it. In 4b it never starts or stops
-// anything and sends nothing but Hello and Report.
+// Package agent is the node side of the agent link. Since stage 4b-2 it
+// dials the controller, says hello, and every report interval asks the
+// helper for each server's STATUS and reports it. Since stage 4c it also
+// carries out the controller's start, stop and restart commands
+// (commands.go).
 package agent
 
 import (
@@ -14,6 +15,7 @@ import (
 	"log"
 	"math/rand/v2"
 	"net"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -54,6 +56,8 @@ type Config struct {
 	NodeID  string
 	Version string
 	Helper  Helper
+	// Runner carries out commands (4c): lifecycle.HelperRuntime.
+	Runner Runner
 
 	// For tests; zero values mean the real thing.
 	Dial         func(ctx context.Context) (net.Conn, error)      // a Unix dial of ControllerSocket
@@ -64,6 +68,8 @@ type Config struct {
 	Rand         func() float64                                   // math/rand/v2's Float64, for jitter
 	CallTimeout  time.Duration                                    // 3 s per STATUS call
 	SweepTimeout time.Duration                                    // 10 s per sweep
+	// CommandCallTimeout is each command's helper call deadline, 100 s.
+	CommandCallTimeout time.Duration
 }
 
 // Agent runs the connect loop.
@@ -72,6 +78,7 @@ type Agent struct {
 	nodeID        string
 	version       string
 	helper        Helper
+	runner        Runner
 	dial          func(ctx context.Context) (net.Conn, error)
 	uidOf         func(net.Conn) (uint32, error)
 	log           *log.Logger
@@ -80,6 +87,8 @@ type Agent struct {
 	backoff       backoff
 	callTimeout   time.Duration
 	sweepTimeout  time.Duration
+
+	commandCallTimeout time.Duration
 }
 
 // New checks the configuration and builds the agent.
@@ -90,6 +99,9 @@ func New(cfg Config) (*Agent, error) {
 	if cfg.Helper == nil {
 		return nil, errors.New("agent: no helper")
 	}
+	if cfg.Runner == nil {
+		return nil, errors.New("agent: no runner")
+	}
 	if cfg.Dial == nil && cfg.ControllerSocket == "" {
 		return nil, errors.New("agent: no controller socket")
 	}
@@ -98,6 +110,7 @@ func New(cfg Config) (*Agent, error) {
 		nodeID:        cfg.NodeID,
 		version:       cfg.Version,
 		helper:        cfg.Helper,
+		runner:        cfg.Runner,
 		dial:          cfg.Dial,
 		uidOf:         cfg.UIDOf,
 		log:           cfg.Log,
@@ -105,6 +118,8 @@ func New(cfg Config) (*Agent, error) {
 		sleep:         cfg.Sleep,
 		callTimeout:   cfg.CallTimeout,
 		sweepTimeout:  cfg.SweepTimeout,
+
+		commandCallTimeout: cfg.CommandCallTimeout,
 	}
 	if a.dial == nil {
 		path := cfg.ControllerSocket
@@ -134,6 +149,9 @@ func New(cfg Config) (*Agent, error) {
 	}
 	if a.sweepTimeout == 0 {
 		a.sweepTimeout = sweepTimeout
+	}
+	if a.commandCallTimeout == 0 {
+		a.commandCallTimeout = commandCallTimeout
 	}
 	return a, nil
 }
@@ -166,8 +184,9 @@ func isReplaced(err error) bool {
 	return ok && st.Code() == codes.Aborted && st.Message() == msgSessionReplaced
 }
 
-// session is one connection: hello, then reports until the stream ends.
-// healthy says it lasted a full report interval, which resets the backoff.
+// session is one connection: hello, then reports and commands until the
+// stream ends. healthy says it lasted a full report interval, which resets
+// the backoff.
 func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 	cc, err := grpc.NewClient("passthrough:///waystone-controller",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return a.dial(ctx) }),
@@ -205,20 +224,71 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 	serverIDs := reply.GetServerIds()
 	a.logf("agent=connected epoch=%d servers=%d interval=%s", reply.GetEpoch(), len(serverIDs), interval)
 
-	// Nothing else is expected from the controller in 4b. The reader only
-	// waits for the stream to end and says how.
+	// One goroutine sends, because a gRPC stream can't send from several
+	// at once (§5 step 6): reports, progress and results all go through
+	// out, in order. out belongs to this session alone, so a command
+	// that finishes after the session ended can never have its result
+	// sent on a later session's stream (F5).
+	out := make(chan *agentv1.ConnectRequest)
+	sendErr := make(chan error, 1)
+	var senderDone sync.WaitGroup
+	senderDone.Go(func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case m := <-out:
+				if ctx.Err() != nil {
+					return
+				}
+				if err := stream.Send(m); err != nil {
+					// io.EOF: the controller closed the stream, and its
+					// status comes with the receive side.
+					if !errors.Is(err, io.EOF) {
+						sendErr <- err
+					}
+					cancel()
+					return
+				}
+			}
+		}
+	})
+	// deliver hands m to the sender. true means only that the sender took
+	// it, not that it was written or that the controller got it. It
+	// reports false once the session is over; the message is then
+	// dropped, never kept for later.
+	deliver := func(m *agentv1.ConnectRequest) bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		select {
+		case out <- m:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+
+	// The reader takes the controller's commands. Anything else, or a
+	// command no correct controller would send, ends the session.
+	cmds := newCommands(reply.GetEpoch(), serverIDs)
 	ended := make(chan error, 1)
 	go func() {
-		m, err := stream.Recv()
-		if err == nil {
-			err = fmt.Errorf("unexpected message from the controller: %T", m.GetMsg())
-			cancel()
+		for {
+			m, err := stream.Recv()
+			if err == nil {
+				err = a.command(m, cmds, deliver)
+			}
+			if err != nil {
+				ended <- err
+				cancel()
+				return
+			}
 		}
-		ended <- err
 	}()
 
 	var seq int64
-	send := func() error {
+	report := func() error {
 		seq++
 		sweepID, err := ids.NewV7()
 		if err != nil {
@@ -226,21 +296,16 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 		}
 		entries := a.sweep(ctx, sweepID, serverIDs)
 		a.logUnknown(sweepID, entries)
-		err = stream.Send(&agentv1.ConnectRequest{Msg: &agentv1.ConnectRequest_Report{Report: &agentv1.Report{
+		deliver(&agentv1.ConnectRequest{Msg: &agentv1.ConnectRequest_Report{Report: &agentv1.Report{
 			Epoch:     reply.GetEpoch(),
 			Seq:       seq,
 			AgentTime: timestamppb.New(a.now()),
 			Entries:   entries,
 		}}})
-		if errors.Is(err, io.EOF) {
-			// The controller closed the stream; its status comes
-			// with the receive side.
-			return <-ended
-		}
-		return err
+		return nil
 	}
 
-	if err := send(); err != nil {
+	if err := report(); err != nil {
 		return false, err
 	}
 	ticker := time.NewTicker(interval)
@@ -248,17 +313,55 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 	for {
 		select {
 		case <-ticker.C:
-			if err := send(); err != nil {
+			if err := report(); err != nil {
 				return healthy, err
 			}
 			healthy = true
 		case err := <-ended:
 			return healthy, err
+		case err := <-sendErr:
+			return healthy, err
 		case <-ctx.Done():
+			// The reader puts its reason in ended before cancelling.
+			select {
+			case err := <-ended:
+				return healthy, err
+			case err := <-sendErr:
+				return healthy, err
+			default:
+			}
+			senderDone.Wait()
 			_ = stream.CloseSend()
 			return healthy, ctx.Err()
 		}
 	}
+}
+
+// command handles one message from the controller after the hello. A
+// server outside the inventory is answered FAILED UNKNOWN_SERVER at once,
+// without asking the helper (F14). An accepted command runs on its own
+// goroutine, so a slow stop doesn't hold up the others.
+func (a *Agent) command(m *agentv1.ConnectResponse, cmds *commands, deliver func(*agentv1.ConnectRequest) bool) error {
+	if hasUnknownFields(m.ProtoReflect()) {
+		return protocolError("message with unknown fields")
+	}
+	cmd := m.GetCommand()
+	if cmd == nil {
+		return protocolError(fmt.Sprintf("unexpected message %T", m.GetMsg()))
+	}
+	known, err := cmds.accept(cmd)
+	if err != nil {
+		return err
+	}
+	if !known {
+		a.logf("agent=command_refused op=%s server=%s reason=unknown_server", cmd.GetOperationId(), cmd.GetServerId())
+		deliver(result(cmd.GetEpoch(), cmd.GetOperationId(),
+			agentv1.ResultOutcome_RESULT_OUTCOME_FAILED, agentv1.ResultCode_RESULT_CODE_UNKNOWN_SERVER))
+		return nil
+	}
+	a.logf("agent=command op=%s server=%s action=%s", cmd.GetOperationId(), cmd.GetServerId(), cmd.GetAction())
+	go a.execute(cmd, cmds, deliver)
+	return nil
 }
 
 // recvStatus: a failed Send only says io.EOF; the real reason is the

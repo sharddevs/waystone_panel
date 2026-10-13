@@ -78,3 +78,54 @@ func toStoreReport(r *agentv1.Report) (store.Report, error) {
 	}
 	return out, nil
 }
+
+// commandActions maps an operation's action onto the wire.
+var commandActions = map[store.Action]agentv1.CommandAction{
+	store.ActionStart:   agentv1.CommandAction_COMMAND_ACTION_START,
+	store.ActionStop:    agentv1.CommandAction_COMMAND_ACTION_STOP,
+	store.ActionRestart: agentv1.CommandAction_COMMAND_ACTION_RESTART,
+}
+
+// resultCodes is the controller's fixed table from an agent's result code
+// to what goes in the operation row (decision L). The agent sends codes
+// only, so none of its text ever reaches the history.
+var resultCodes = map[agentv1.ResultCode]store.OperationResult{
+	agentv1.ResultCode_RESULT_CODE_NOT_FOUND: {State: store.StateFailed, Code: "not_found",
+		Summary: "The server's systemd unit was not found on the node."},
+	agentv1.ResultCode_RESULT_CODE_PERMISSION_DENIED: {State: store.StateFailed, Code: "permission_denied",
+		Summary: "The node's helper refused the request."},
+	agentv1.ResultCode_RESULT_CODE_INVALID_REQUEST: {State: store.StateFailed, Code: "invalid_request",
+		Summary: "The node's helper rejected the request as invalid."},
+	agentv1.ResultCode_RESULT_CODE_ACTION_FAILED: {State: store.StateFailed, Code: "action_failed",
+		Summary: "systemd reported that the action failed."},
+	agentv1.ResultCode_RESULT_CODE_HELPER_UNAVAILABLE: {State: store.StateFailed, Code: "helper_unavailable",
+		Summary: "The agent couldn't reach the node's helper, so nothing was done."},
+	agentv1.ResultCode_RESULT_CODE_UNKNOWN_SERVER: {State: store.StateFailed, Code: "unknown_server",
+		Summary: "The agent doesn't manage this server, so nothing was done."},
+	agentv1.ResultCode_RESULT_CODE_SERVER_BUSY: {State: store.StateFailed, Code: "server_busy",
+		Summary: "An earlier action on this server was still running, so nothing was done."},
+	agentv1.ResultCode_RESULT_CODE_NO_ANSWER: {State: store.StateUncertain, Code: "no_answer",
+		Summary: "The node's helper didn't answer, so nobody knows whether the action ran."},
+}
+
+// toStoreResult checks that a result's outcome and code belong together
+// and turns them into the row's state, code and summary. SUCCEEDED comes
+// with no code, UNKNOWN only with NO_ANSWER, and FAILED with any other
+// known code. Everything else, unknown numbers included, is refused.
+func toStoreResult(r *agentv1.Result) (store.OperationResult, bool) {
+	switch r.GetOutcome() {
+	case agentv1.ResultOutcome_RESULT_OUTCOME_SUCCEEDED:
+		if r.GetCode() == agentv1.ResultCode_RESULT_CODE_UNSPECIFIED {
+			return store.OperationResult{State: store.StateSucceeded}, true
+		}
+	case agentv1.ResultOutcome_RESULT_OUTCOME_FAILED:
+		if m, ok := resultCodes[r.GetCode()]; ok && m.State == store.StateFailed {
+			return m, true
+		}
+	case agentv1.ResultOutcome_RESULT_OUTCOME_UNKNOWN:
+		if m, ok := resultCodes[r.GetCode()]; ok && m.State == store.StateUncertain {
+			return m, true
+		}
+	}
+	return store.OperationResult{}, false
+}

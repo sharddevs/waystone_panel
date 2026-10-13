@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Command waystone-agent runs on a node as the unprivileged agent user. It
-// connects to the controller, and every report interval it asks the
-// helper for each server's state and reports it. In stage 4b it never
-// starts or stops anything.
+// connects to the controller, every report interval it asks the helper
+// for each server's state and reports it, and it carries out the
+// controller's start, stop and restart commands through the helper.
 package main
 
 import (
@@ -19,6 +19,7 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/agent"
 	"github.com/sharddevs/waystone_panel/internal/helper"
 	"github.com/sharddevs/waystone_panel/internal/ids"
+	"github.com/sharddevs/waystone_panel/internal/lifecycle"
 )
 
 const version = "0.1.0-alpha"
@@ -83,6 +84,7 @@ func run(args []string, uid int, stderr io.Writer) int {
 		NodeID:           cfg.node,
 		Version:          version,
 		Helper:           helper.Client{SocketPath: cfg.helper},
+		Runner:           lifecycle.HelperRuntime{Client: helper.Client{SocketPath: cfg.helper}},
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "waystone-agent:", err)

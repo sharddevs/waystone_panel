@@ -8,7 +8,9 @@ syntax = "proto3";
 //
 // The controller trusts nothing in these messages about who is talking:
 // the node comes from its own configuration, and the peer's uid from the
-// kernel. A report only describes observations, never commands.
+// kernel. A report only describes observations. Since stage 4c the
+// controller also sends commands (start, stop, restart), and the agent
+// answers each one with exactly one result.
 package waystone.agent.v1;
 
 import "google/protobuf/timestamp.proto";
@@ -16,8 +18,9 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/sharddevs/waystone_panel/gen/waystone/agent/v1;agentv1";
 
 service AgentLinkService {
-  // One stream per agent. The first message must be a Hello; everything
-  // after it must be a Report.
+  // One stream per agent. The first message must be a Hello; after it come
+  // Reports, and Progress and Results for the commands the controller
+  // sent on this stream.
   rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
 }
 
@@ -26,14 +29,16 @@ message ConnectRequest {
   oneof msg {
     Hello hello = 1;
     Report report = 2;
+    Progress progress = 3;
+    Result result = 4;
   }
 }
 
-// What the controller sends. Room for the commands of stage 4c, without
-// changing the stream.
+// What the controller sends: the HelloReply first, then commands.
 message ConnectResponse {
   oneof msg {
     HelloReply hello_reply = 1;
+    Command command = 2;
   }
 }
 
@@ -76,4 +81,75 @@ enum ProcessState {
   PROCESS_STATE_FAILED = 5;
   // The agent couldn't find out. native_state says why.
   PROCESS_STATE_UNKNOWN = 6;
+}
+
+// One operation for the agent to carry out (decision N): only the action
+// and IDs, never names, paths, commands or settings.
+message Command {
+  // The session's epoch. A command from another epoch is a protocol error.
+  int64 epoch = 1;
+  string operation_id = 2;
+  string server_id = 3;
+  CommandAction action = 4;
+}
+
+enum CommandAction {
+  COMMAND_ACTION_UNSPECIFIED = 0;
+  COMMAND_ACTION_START = 1;
+  COMMAND_ACTION_STOP = 2;
+  // STOP, then START, reported in two phases.
+  COMMAND_ACTION_RESTART = 3;
+}
+
+// Sent once during a restart, after the stop succeeded and before the
+// start begins.
+message Progress {
+  int64 epoch = 1;
+  string operation_id = 2;
+  OperationPhase phase = 3;
+}
+
+enum OperationPhase {
+  OPERATION_PHASE_UNSPECIFIED = 0;
+  OPERATION_PHASE_STARTING = 1;
+}
+
+// How a command ended. Exactly one per command. Codes only: the
+// controller turns them into its own fixed messages, so no text from the
+// agent ever reaches the operation history.
+message Result {
+  int64 epoch = 1;
+  string operation_id = 2;
+  ResultOutcome outcome = 3;
+  ResultCode code = 4;
+}
+
+enum ResultOutcome {
+  RESULT_OUTCOME_UNSPECIFIED = 0;
+  RESULT_OUTCOME_SUCCEEDED = 1;
+  // Definitely failed: the helper said so, or it was never asked.
+  RESULT_OUTCOME_FAILED = 2;
+  // Nobody knows whether it ran. The operation becomes uncertain.
+  RESULT_OUTCOME_UNKNOWN = 3;
+}
+
+enum ResultCode {
+  // Only with SUCCEEDED.
+  RESULT_CODE_UNSPECIFIED = 0;
+  // The helper answered with one of these.
+  RESULT_CODE_NOT_FOUND = 1;
+  RESULT_CODE_PERMISSION_DENIED = 2;
+  RESULT_CODE_INVALID_REQUEST = 3;
+  RESULT_CODE_ACTION_FAILED = 4;
+  // Nothing was written to the helper, so nothing ran.
+  RESULT_CODE_HELPER_UNAVAILABLE = 5;
+  // A write to the helper was attempted and no valid answer came back.
+  // Only with UNKNOWN.
+  RESULT_CODE_NO_ANSWER = 6;
+  // The server isn't in this agent's inventory; the helper was never
+  // asked (F14).
+  RESULT_CODE_UNKNOWN_SERVER = 7;
+  // The helper refused: an earlier action on this server, or a systemd
+  // job for it, is still running (S3).
+  RESULT_CODE_SERVER_BUSY = 8;
 }

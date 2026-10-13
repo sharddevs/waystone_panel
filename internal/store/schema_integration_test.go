@@ -316,8 +316,12 @@ func TestOperationHistoryProtected(t *testing.T) {
 		t.Errorf("delete: err = %v, want SQLSTATE 42501", err)
 	}
 
+	// The history rules bind everyone, so they're walked here as the
+	// owner with the override on, which skips only the per-actor rules
+	// (4c, S4). Those have their own tests in dispatch_integration_test.go.
 	setState := func(s OperationState) error {
-		return asAdminA(`UPDATE waystone.operations SET state = $1 WHERE operation_id = $2`, string(s), op.ID)
+		_, err := e.owner.Exec(ctx, `UPDATE waystone.operations SET state = $1 WHERE operation_id = $2`, string(s), op.ID)
+		return err
 	}
 	steps := []struct {
 		to OperationState

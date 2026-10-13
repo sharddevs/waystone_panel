@@ -82,6 +82,7 @@ func runAgent(t *testing.T, e *env, h agent.Helper, controllerUID uint32, sl *sl
 		NodeID:           nodeA,
 		Version:          "test",
 		Helper:           h,
+		Runner:           &fakeRunner{},
 		Log:              log.New(io.Discard, "", 0),
 	}
 	if sl != nil {
@@ -250,6 +251,7 @@ func TestHealthySessionResetsBackoff(t *testing.T) {
 		ControllerUID:    uint32(os.Getuid()),
 		NodeID:           nodeA,
 		Helper:           &fakeHelper{},
+		Runner:           &fakeRunner{},
 		Log:              log.New(io.Discard, "", 0),
 		Dial: func(ctx context.Context) (net.Conn, error) {
 			mu.Lock()

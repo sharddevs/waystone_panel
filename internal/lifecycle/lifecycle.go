@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 	"github.com/sharddevs/waystone_panel/internal/helper"
@@ -65,6 +66,17 @@ func (h HelperRuntime) do(
 		OperationId: operationID,
 		ServerId:    serverID,
 		Action:      action,
+	}
+	// START and STOP carry the caller's deadline, so the helper never
+	// begins one after the caller has given up on it (stage 4c, S3).
+	// Without a deadline on ctx, the helper's own connection limit is the
+	// most it would wait anyway.
+	if action == helperv1.Action_ACTION_START || action == helperv1.Action_ACTION_STOP {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			deadline = time.Now().Add(helper.ConnTimeout)
+		}
+		req.NotAfterUnixMs = deadline.UnixMilli()
 	}
 
 	return h.send(ctx, h.Client, req)

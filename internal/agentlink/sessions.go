@@ -22,6 +22,7 @@ type sessions struct {
 type session struct {
 	epoch  int64
 	cancel context.CancelCauseFunc
+	kick   func() // wakes the session's dispatcher (4c); nil until set
 }
 
 func newSessions() *sessions {
@@ -63,4 +64,25 @@ func (s *sessions) epoch(node string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.live[node].epoch
+}
+
+// setKick attaches the dispatcher's wake-up to node's session, if it is
+// still epoch.
+func (s *sessions) setKick(node string, epoch int64, kick func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur, ok := s.live[node]; ok && cur.epoch == epoch {
+		cur.kick = kick
+		s.live[node] = cur
+	}
+}
+
+// kick wakes node's live dispatcher, if there is one. It never blocks.
+func (s *sessions) kick(node string) {
+	s.mu.Lock()
+	k := s.live[node].kick
+	s.mu.Unlock()
+	if k != nil {
+		k()
+	}
 }

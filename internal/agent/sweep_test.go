@@ -72,7 +72,7 @@ func running(native string) *helperv1.Response {
 
 func testAgent(t *testing.T, h Helper, call, sweep time.Duration) *Agent {
 	t.Helper()
-	a, err := New(Config{ControllerSocket: "/nonexistent", NodeID: node, Helper: h, CallTimeout: call, SweepTimeout: sweep})
+	a, err := New(Config{ControllerSocket: "/nonexistent", NodeID: node, Helper: h, Runner: &fakeRunner{}, CallTimeout: call, SweepTimeout: sweep})
 	if err != nil {
 		t.Fatal(err)
 	}

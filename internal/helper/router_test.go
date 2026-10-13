@@ -5,12 +5,13 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 )
 
 func startCommand() Command {
-	return Command{OperationID: testOpID, ServerID: testServerID, Action: helperv1.Action_ACTION_START}
+	return Command{OperationID: testOpID, ServerID: testServerID, Action: helperv1.Action_ACTION_START, NotAfter: time.UnixMilli(testNotAfter)}
 }
 
 func provisionCommand() Command {
@@ -18,15 +19,16 @@ func provisionCommand() Command {
 }
 
 func TestRouterSendsLifecycleActionsToSystemd(t *testing.T) {
-	runner := &fakeRunner{}
-	r := Router{Systemd: &Systemd{Runner: runner}}
+	runner := &fakeRunner{output: idleUnit}
+	r := Router{Systemd: &Systemd{Runner: runner, Busy: &Busy{}}}
 	resp := r.Handle(context.Background(), startCommand())
 	if resp.GetErrorCode() != helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED {
 		t.Fatalf("START: %v %s", resp.GetErrorCode(), resp.GetErrorMessage())
 	}
+	// Since stage 4c the job check (S3) comes first, then the start.
 	want := []string{"/usr/bin/systemctl", "--no-ask-password", "start", "--", testUnit}
-	if len(runner.calls) != 1 || !slices.Equal(runner.calls[0], want) {
-		t.Errorf("runner calls %q, want %q", runner.calls, want)
+	if len(runner.calls) != 2 || !slices.Equal(runner.calls[0], jobCheckArgv) || !slices.Equal(runner.calls[1], want) {
+		t.Errorf("runner calls %q, want %q then %q", runner.calls, jobCheckArgv, want)
 	}
 }
 

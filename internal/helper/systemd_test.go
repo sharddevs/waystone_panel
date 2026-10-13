@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 )
@@ -21,6 +22,13 @@ func (f *fakeRunner) Run(_ context.Context, argv []string) ([]byte, error) {
 }
 
 const testUnit = "waystone-srv-3f2504e0-4f89-41d3-9a0c-0305e82c3301.service"
+
+// idleUnit is what systemctl show prints for a loaded, stopped unit with
+// no job: what a START or STOP needs to go ahead (S3).
+const idleUnit = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nJob=\n"
+
+// jobCheckArgv is the show call before every START and STOP.
+var jobCheckArgv = []string{"/usr/bin/systemctl", "--no-ask-password", "show", "--property=LoadState,ActiveState,SubState,Job", "--", testUnit}
 
 // The exact command lines matter: an absolute program path, no shell, no
 // password prompts, and "--" so a unit name can never be read as an option.
@@ -114,14 +122,14 @@ func TestSystemdHandle(t *testing.T) {
 		wantCode  helperv1.ErrorCode
 		wantState helperv1.RunState
 	}{
-		{"start ok", &fakeRunner{}, helperv1.Action_ACTION_START, helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED, helperv1.RunState_RUN_STATE_UNSPECIFIED},
-		{"stop ok", &fakeRunner{}, helperv1.Action_ACTION_STOP, helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED, helperv1.RunState_RUN_STATE_UNSPECIFIED},
+		{"start ok", &fakeRunner{output: idleUnit}, helperv1.Action_ACTION_START, helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED, helperv1.RunState_RUN_STATE_UNSPECIFIED},
+		{"stop ok", &fakeRunner{output: idleUnit}, helperv1.Action_ACTION_STOP, helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED, helperv1.RunState_RUN_STATE_UNSPECIFIED},
 		{"start fails", &fakeRunner{err: errors.New("boom")}, helperv1.Action_ACTION_START, helperv1.ErrorCode_ERROR_CODE_FAILED, helperv1.RunState_RUN_STATE_UNSPECIFIED},
 		{"status running", &fakeRunner{output: running}, helperv1.Action_ACTION_STATUS, helperv1.ErrorCode_ERROR_CODE_UNSPECIFIED, helperv1.RunState_RUN_STATE_RUNNING},
 		{"status not found", &fakeRunner{output: notFound}, helperv1.Action_ACTION_STATUS, helperv1.ErrorCode_ERROR_CODE_NOT_FOUND, helperv1.RunState_RUN_STATE_UNSPECIFIED},
 	}
 	for _, tt := range tests {
-		resp := Systemd{Runner: tt.runner}.Handle(ctx, Command{OperationID: testOpID, ServerID: testServerID, Action: tt.action})
+		resp := Systemd{Runner: tt.runner, Busy: &Busy{}}.Handle(ctx, Command{OperationID: testOpID, ServerID: testServerID, Action: tt.action, NotAfter: time.UnixMilli(testNotAfter)})
 		if resp.GetErrorCode() != tt.wantCode {
 			t.Errorf("%s: error code %v, want %v (%s)", tt.name, resp.GetErrorCode(), tt.wantCode, resp.GetErrorMessage())
 		}

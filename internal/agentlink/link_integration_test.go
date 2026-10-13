@@ -8,6 +8,7 @@ package agentlink
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"sync"
@@ -414,8 +415,15 @@ func TestShutdownWithLiveStreams(t *testing.T) {
 // map never saw (say, from a restarted controller) bumps the epoch. The
 // live session's next report fails the locked epoch check (C3), and the
 // agent still gets exactly ABORTED session_replaced.
+//
+// Since 4c the session's dispatcher claims right after the hello and
+// checks the same epoch, so it could meet the bump first. Claims are
+// switched off here to keep this about the report; the claim's own path
+// is TestSupersededClaim.
 func TestSupersededInDatabase(t *testing.T) {
-	e := setup(t, nil)
+	e := setup(t, func(c *Config) {
+		c.TestBeforeClaim = func() error { return errors.New("claims off in this test") }
+	})
 	s := e.stream(t, e.client(t))
 	epoch := hello(t, s).GetEpoch()
 	mustExec(t, e.owner, `UPDATE waystone.nodes SET session_epoch = session_epoch + 1 WHERE node_id = $1`, nodeA)

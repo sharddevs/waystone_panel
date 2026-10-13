@@ -107,3 +107,45 @@ func TestHelperRuntimeNoHelper(t *testing.T) {
 		t.Error("Start succeeded with no helper running")
 	}
 }
+
+// Stage 4c, S3: START and STOP carry the caller's deadline; STATUS
+// carries none (the helper would refuse one).
+func TestHelperRuntimeSendsDeadline(t *testing.T) {
+	var got []helper.Command
+	rt := startHelper(t, func(_ context.Context, cmd helper.Command) *helperv1.Response {
+		got = append(got, cmd)
+		return &helperv1.Response{RunState: helperv1.RunState_RUN_STATE_RUNNING}
+	})
+	deadline := time.Now().Add(7 * time.Second).Truncate(time.Millisecond)
+	c, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	if err := rt.Start(c, serverID, opID); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := rt.Stop(c, serverID, opID); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if _, err := rt.Status(c, serverID, opID); err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("helper received %d requests, want 3", len(got))
+	}
+	for _, cmd := range got[:2] {
+		if !cmd.NotAfter.Equal(deadline) {
+			t.Errorf("%v: NotAfter %v, want the caller's deadline %v", cmd.Action, cmd.NotAfter, deadline)
+		}
+	}
+	if !got[2].NotAfter.IsZero() {
+		t.Errorf("STATUS: NotAfter %v, want none", got[2].NotAfter)
+	}
+}
+
+// S5: the helper client's "never sent" survives lifecycle's wrapping, so
+// the agent can tell a request that can't have run from one that might.
+func TestHelperRuntimeNotSent(t *testing.T) {
+	rt := HelperRuntime{Client: helper.Client{SocketPath: filepath.Join(t.TempDir(), "missing.sock")}}
+	if err := rt.Stop(ctx(t), serverID, opID); !errors.Is(err, helper.ErrNotSent) {
+		t.Errorf("no helper: %v, want helper.ErrNotSent", err)
+	}
+}

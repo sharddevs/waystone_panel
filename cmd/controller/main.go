@@ -251,12 +251,30 @@ func run(args []string, stderr io.Writer) int {
 		}
 	}
 
-	handler := api.New(api.Config{
+	cfg := api.Config{
 		Version: version,
 		Store:   db,
-	})
+	}
+	if link != nil {
+		// A new operation wakes the agent session at once (Q7), instead
+		// of waiting for its next report.
+		cfg.OnOperation = func(op store.Operation) { link.Kick(op.NodeID) }
+	}
+	handler := api.New(cfg)
 
 	server := newServer(handler)
+
+	// I7, F2: whatever was running when the last controller stopped may
+	// or may not have happened. That becomes uncertain before anything
+	// is served, so nothing can be sent or finished in between. It comes
+	// after the listeners on purpose: a second controller that can't get
+	// the sockets must not touch the first one's operations (L7).
+	recovered, err := db.RecoverRunningOperations(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, "startup recovery:", err)
+		return 1
+	}
+	fmt.Fprintf(stderr, "startup recovery: %d running operation(s) marked uncertain\n", recovered)
 
 	fmt.Fprintf(stderr, "Waystone controller listening on %s\n", listener.Addr())
 

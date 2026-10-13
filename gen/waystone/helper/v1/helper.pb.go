@@ -121,7 +121,9 @@ const (
 	// The action was attempted and failed.
 	ErrorCode_ERROR_CODE_FAILED ErrorCode = 4
 	// Something the action would create already exists and was not created
-	// by Waystone for this server. Nothing was changed.
+	// by Waystone for this server. For START and STOP: another action on
+	// this server is still running, systemd still has a job for it, or the
+	// request's deadline has passed. Either way nothing was changed.
 	ErrorCode_ERROR_CODE_CONFLICT ErrorCode = 5
 	// ACTION_WRITE_FILE: the file is no longer what the agent read. Nothing
 	// was written; read it again and decide again.
@@ -306,9 +308,15 @@ type Request struct {
 	Provision *ProvisionSpec `protobuf:"bytes,4,opt,name=provision,proto3" json:"provision,omitempty"`
 	// Required for ACTION_READ_FILE, ACTION_WRITE_FILE and
 	// ACTION_INSTALL_FILE, refused for every other action.
-	File          *FileSpec `protobuf:"bytes,5,opt,name=file,proto3" json:"file,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	File *FileSpec `protobuf:"bytes,5,opt,name=file,proto3" json:"file,omitempty"`
+	// Required for ACTION_START and ACTION_STOP, refused for every other
+	// action: the sender's deadline, in Unix milliseconds. The helper won't
+	// begin the action after it, so a request that waited too long in the
+	// helper's queue can't run after its sender has given up on it (stage
+	// 4c, S3).
+	NotAfterUnixMs int64 `protobuf:"varint,6,opt,name=not_after_unix_ms,json=notAfterUnixMs,proto3" json:"not_after_unix_ms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Request) Reset() {
@@ -374,6 +382,13 @@ func (x *Request) GetFile() *FileSpec {
 		return x.File
 	}
 	return nil
+}
+
+func (x *Request) GetNotAfterUnixMs() int64 {
+	if x != nil {
+		return x.NotAfterUnixMs
+	}
+	return 0
 }
 
 // One file directly inside the server's directory.
@@ -612,13 +627,14 @@ const file_waystone_helper_v1_helper_proto_rawDesc = "" +
 	"\x1fwaystone/helper/v1/helper.proto\x12\x12waystone.helper.v1\"D\n" +
 	"\rProvisionSpec\x12\x18\n" +
 	"\aruntime\x18\x01 \x01(\tR\aruntime\x12\x19\n" +
-	"\bheap_mib\x18\x02 \x01(\rR\aheapMib\"\xf0\x01\n" +
+	"\bheap_mib\x18\x02 \x01(\rR\aheapMib\"\x9b\x02\n" +
 	"\aRequest\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12\x1b\n" +
 	"\tserver_id\x18\x02 \x01(\tR\bserverId\x122\n" +
 	"\x06action\x18\x03 \x01(\x0e2\x1a.waystone.helper.v1.ActionR\x06action\x12?\n" +
 	"\tprovision\x18\x04 \x01(\v2!.waystone.helper.v1.ProvisionSpecR\tprovision\x120\n" +
-	"\x04file\x18\x05 \x01(\v2\x1c.waystone.helper.v1.FileSpecR\x04file\"\xa9\x01\n" +
+	"\x04file\x18\x05 \x01(\v2\x1c.waystone.helper.v1.FileSpecR\x04file\x12)\n" +
+	"\x11not_after_unix_ms\x18\x06 \x01(\x03R\x0enotAfterUnixMs\"\xa9\x01\n" +
 	"\bFileSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12#\n" +

@@ -57,6 +57,12 @@ message Request {
   // Required for ACTION_READ_FILE, ACTION_WRITE_FILE and
   // ACTION_INSTALL_FILE, refused for every other action.
   FileSpec file = 5;
+  // Required for ACTION_START and ACTION_STOP, refused for every other
+  // action: the sender's deadline, in Unix milliseconds. The helper won't
+  // begin the action after it, so a request that waited too long in the
+  // helper's queue can't run after its sender has given up on it (stage
+  // 4c, S3).
+  int64 not_after_unix_ms = 6;
 }
 
 // One file directly inside the server's directory.
@@ -89,7 +95,9 @@ enum ErrorCode {
   // The action was attempted and failed.
   ERROR_CODE_FAILED = 4;
   // Something the action would create already exists and was not created
-  // by Waystone for this server. Nothing was changed.
+  // by Waystone for this server. For START and STOP: another action on
+  // this server is still running, systemd still has a job for it, or the
+  // request's deadline has passed. Either way nothing was changed.
   ERROR_CODE_CONFLICT = 5;
   // ACTION_WRITE_FILE: the file is no longer what the agent read. Nothing
   // was written; read it again and decide again.

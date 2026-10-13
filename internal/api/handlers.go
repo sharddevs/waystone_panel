@@ -173,8 +173,9 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 //  4. Fingerprint(r.Method, route, id, the decoded body).
 //  5. run with action and ("server", id), calling tx.CreateOperation.
 //  6. A new operation: 202 Accepted, a Location header
-//     /api/v1/operations/<op id>, and the operation as JSON. A replay
-//     (same key, same request): 200 with the operation as it is now.
+//     /api/v1/operations/<op id>, and the operation as JSON, after
+//     OnOperation has been told about it. A replay (same key, same
+//     request): 200 with the operation as it is now, and no OnOperation.
 //
 // TODO
 func (a *API) handleAction(action store.Action, route string) http.HandlerFunc {
@@ -232,6 +233,10 @@ func (a *API) handleAction(action store.Action, route string) http.HandlerFunc {
 			status = http.StatusOK
 		} else {
 			w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
+			// Committed by now, so the agent's claim can see it.
+			if a.onOperation != nil {
+				a.onOperation(operation)
+			}
 		}
 
 		writeJSON(w, status, toOperationJSON(operation))

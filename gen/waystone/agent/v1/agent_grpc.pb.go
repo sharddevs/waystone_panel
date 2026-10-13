@@ -12,7 +12,9 @@
 //
 // The controller trusts nothing in these messages about who is talking:
 // the node comes from its own configuration, and the peer's uid from the
-// kernel. A report only describes observations, never commands.
+// kernel. A report only describes observations. Since stage 4c the
+// controller also sends commands (start, stop, restart), and the agent
+// answers each one with exactly one result.
 
 package agentv1
 
@@ -36,8 +38,9 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AgentLinkServiceClient interface {
-	// One stream per agent. The first message must be a Hello; everything
-	// after it must be a Report.
+	// One stream per agent. The first message must be a Hello; after it come
+	// Reports, and Progress and Results for the commands the controller
+	// sent on this stream.
 	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConnectRequest, ConnectResponse], error)
 }
 
@@ -66,8 +69,9 @@ type AgentLinkService_ConnectClient = grpc.BidiStreamingClient[ConnectRequest, C
 // All implementations must embed UnimplementedAgentLinkServiceServer
 // for forward compatibility.
 type AgentLinkServiceServer interface {
-	// One stream per agent. The first message must be a Hello; everything
-	// after it must be a Report.
+	// One stream per agent. The first message must be a Hello; after it come
+	// Reports, and Progress and Results for the commands the controller
+	// sent on this stream.
 	Connect(grpc.BidiStreamingServer[ConnectRequest, ConnectResponse]) error
 	mustEmbedUnimplementedAgentLinkServiceServer()
 }

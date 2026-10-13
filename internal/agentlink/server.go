@@ -17,6 +17,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -77,6 +78,14 @@ type Config struct {
 	Now            func() time.Time               // time.Now, for the churn window and log limits
 	HelloTimeout   time.Duration                  // HelloTimeout
 	ReportInterval time.Duration                  // ReportInterval; whole seconds
+
+	// Crash-point hooks for tests (4c, F2 and S2). nil in production.
+	// TestBeforeClaim runs inside the claim transaction; an error rolls
+	// it back, like a failed claim. TestAfterClaim runs after the claim
+	// commits and before the Send; an error stands for a Send that
+	// failed, or a controller that died right there.
+	TestBeforeClaim func() error
+	TestAfterClaim  func(store.ClaimedOperation) error
 }
 
 // Server is the agent link: one gRPC server with one service.
@@ -99,6 +108,9 @@ type Server struct {
 	sessions   *sessions
 	churn      *churn
 	logLimit   *logLimit
+
+	testBeforeClaim func() error
+	testAfterClaim  func(store.ClaimedOperation) error
 }
 
 // New builds the link. It refuses a node ID that isn't a canonical UUID
@@ -120,6 +132,9 @@ func New(cfg Config) (*Server, error) {
 		reportInterval: cfg.ReportInterval,
 		sessions:       newSessions(),
 		churn:          newChurn(),
+
+		testBeforeClaim: cfg.TestBeforeClaim,
+		testAfterClaim:  cfg.TestAfterClaim,
 	}
 	s.base, s.cancelBase = context.WithCancelCause(context.Background())
 	if s.log == nil {
@@ -169,6 +184,14 @@ func (s *Server) logf(format string, args ...any) { s.log.Printf(format, args...
 // Serve accepts agents on l, at most MaxConns at a time, until Stop.
 func (s *Server) Serve(l net.Listener) error {
 	return s.grpc.Serve(newLimitListener(l, MaxConns))
+}
+
+// Kick tells node's live session, if any, that it may have a new pending
+// operation (Q7). The API calls it after an operation commits. It never
+// blocks, and a kick for another node or with no session does nothing:
+// the next hello or report claims anyway.
+func (s *Server) Kick(nodeID string) {
+	s.sessions.kick(nodeID)
 }
 
 // CancelSessions ends every stream, with or without a session yet (R10
@@ -299,6 +322,18 @@ func (s *Server) Connect(stream agentv1.AgentLinkService_ConnectServer) error {
 	s.logf("agent_session=started node=%s epoch=%d servers=%d agent_version=%q",
 		s.nodeID, epoch, len(serverIDs), clip(hello.GetAgentVersion(), 64))
 
+	// From here on only the dispatcher sends (S2). The handler waits for
+	// it before returning, so nothing is sent on a finished stream.
+	d := newDispatcher(s, epoch, stream)
+	s.sessions.setKick(s.nodeID, epoch, d.signal)
+	d.signal() // claim right after the hello (Q7)
+	dispCtx, stopDispatch := context.WithCancel(sessCtx)
+	dispErr := make(chan error, 1)
+	var dispDone sync.WaitGroup
+	dispDone.Go(func() { dispErr <- d.run(dispCtx) })
+	defer dispDone.Wait()
+	defer stopDispatch()
+
 	var lastSeq int64
 	for {
 		select {
@@ -307,8 +342,17 @@ func (s *Server) Connect(stream agentv1.AgentLinkService_ConnectServer) error {
 		case err := <-recvErr:
 			s.logf("agent_session=ended node=%s epoch=%d", s.nodeID, epoch)
 			return endOfStream(err)
+		case err := <-dispErr:
+			if sessCtx.Err() != nil {
+				return s.sessionEnded(sessCtx, epoch)
+			}
+			if errors.Is(err, store.ErrSessionSuperseded) {
+				s.logf("agent_session=superseded node=%s epoch=%d", s.nodeID, epoch)
+				return streamError(codes.Aborted, MsgSessionReplaced)
+			}
+			return streamError(codes.Unavailable, "send_failed")
 		case m := <-msgs:
-			if err := s.report(sessCtx, epoch, &lastSeq, m); err != nil {
+			if err := s.message(sessCtx, d, &lastSeq, m); err != nil {
 				if sessCtx.Err() != nil {
 					return s.sessionEnded(sessCtx, epoch)
 				}
@@ -318,18 +362,30 @@ func (s *Server) Connect(stream agentv1.AgentLinkService_ConnectServer) error {
 	}
 }
 
-// report handles one message after the Hello. Any error ends the stream.
-func (s *Server) report(ctx context.Context, epoch int64, lastSeq *int64, m *agentv1.ConnectRequest) error {
+// message handles one message after the Hello. Any error ends the stream.
+func (s *Server) message(ctx context.Context, d *dispatcher, lastSeq *int64, m *agentv1.ConnectRequest) error {
 	if hasUnknownFields(m.ProtoReflect()) {
 		return s.refuse(codes.InvalidArgument, "unknown_field")
 	}
-	wire := m.GetReport()
-	if wire == nil {
-		if m.GetHello() != nil {
-			return s.refuse(codes.FailedPrecondition, "unexpected_hello")
+	switch {
+	case m.GetReport() != nil:
+		if err := s.report(ctx, d.epoch, lastSeq, m.GetReport()); err != nil {
+			return err
 		}
-		return s.refuse(codes.InvalidArgument, "unknown_message")
+		d.signal() // the safety net (Q7)
+		return nil
+	case m.GetResult() != nil:
+		return d.result(ctx, m.GetResult())
+	case m.GetProgress() != nil:
+		return d.progress(ctx, m.GetProgress())
+	case m.GetHello() != nil:
+		return s.refuse(codes.FailedPrecondition, "unexpected_hello")
 	}
+	return s.refuse(codes.InvalidArgument, "unknown_message")
+}
+
+// report handles one Report.
+func (s *Server) report(ctx context.Context, epoch int64, lastSeq *int64, wire *agentv1.Report) error {
 	r, err := toStoreReport(wire)
 	if err != nil {
 		return s.refuse(codes.InvalidArgument, "invalid_report")
