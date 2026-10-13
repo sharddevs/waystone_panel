@@ -1,13 +1,18 @@
-// Command controller runs the Waystone controller. For now it only serves
-// /healthz on localhost.
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Command controller runs the Waystone controller. For now it serves
+// /healthz on localhost, and "controller migrate -db <dsn>" applies the
+// database migrations.
 package main
 
 import (
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/sharddevs/waystone_panel/internal/api"
+	"github.com/sharddevs/waystone_panel/internal/store"
 )
 
 // newServer is split out of main so the tests can check its settings
@@ -23,7 +28,11 @@ func newServer(version string) *http.Server {
 	}
 }
 func main() {
-
+	// "migrate" is a separate mode: it updates the schema and exits
+	// without starting the server.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		os.Exit(runMigrate(os.Args[2:], os.Stdout, os.Stderr, store.Migrate))
+	}
 	server := newServer("0.1.0-alpha")
 	log.Println("Waystone controller listening on", server.Addr)
 
