@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The controller's API socket. systemd creates it as root:waystone-admin
+# 0660 before the controller runs, so only the host's admins can reach the
+# API. The controller finds it by FileDescriptorName (cmd/controller).
+[Unit]
+Description=Waystone controller API socket
+
+[Socket]
+ListenStream=/run/waystone-controller/api.sock
+FileDescriptorName=waystone-controller-api
+Service=waystone-controller.service
+SocketUser=root
+SocketGroup=waystone-admin
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The controller's agent socket: root:waystone-agent 0660, so only the
+# agent can connect. The controller then accepts only the uid it was given
+# with -agent-uid.
+[Unit]
+Description=Waystone controller agent socket
+
+[Socket]
+ListenStream=/run/waystone-controller/agent.sock
+FileDescriptorName=waystone-controller-agent
+Service=waystone-controller.service
+SocketUser=root
+SocketGroup=waystone-agent
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+
+[Install]
+WantedBy=sockets.target

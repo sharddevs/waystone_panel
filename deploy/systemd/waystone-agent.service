@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The agent runs as waystone-agent, never as root. It connects out to the
+# controller's agent socket and to the helper; losing either is not fatal,
+# it reconnects. Restart= only covers a crash.
+[Unit]
+Description=Waystone agent
+Wants=waystone-helper.socket waystone-controller-agent.socket
+After=waystone-helper.socket waystone-controller-agent.socket
+
+[Service]
+Type=simple
+User=waystone-agent
+Group=waystone-agent
+EnvironmentFile=/etc/waystone/agent.env
+ExecStart=/usr/local/bin/waystone-agent -controller /run/waystone-controller/agent.sock -controller-uid ${WAYSTONE_CONTROLLER_UID} -node ${WAYSTONE_NODE_ID}
+Restart=always
+RestartSec=2
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

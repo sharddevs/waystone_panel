@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The controller runs as its own unprivileged user and is started by its
+# two sockets. It refuses to run unless systemd passes exactly those two,
+# so Sockets= names them. Schema migrations are not run from here: they
+# are a manual step as waystone_owner, and this user only ever gets
+# waystone_app.
+[Unit]
+Description=Waystone controller
+Requires=waystone-controller-api.socket waystone-controller-agent.socket
+After=waystone-controller-api.socket waystone-controller-agent.socket postgresql.service
+
+[Service]
+Type=simple
+User=waystone-controller
+Group=waystone-controller
+EnvironmentFile=/etc/waystone/controller.env
+ExecStart=/usr/local/bin/waystone-controller -agent-uid ${WAYSTONE_AGENT_UID} -agent-node ${WAYSTONE_NODE_ID}
+Sockets=waystone-controller-api.socket waystone-controller-agent.socket
+Restart=on-failure
+RestartSec=2
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077

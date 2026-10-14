@@ -22,7 +22,13 @@ func (controllerAuth) AuthType() string { return "peercred" }
 
 // clientCreds is the agent's side of R2. gRPC calls ClientHandshake right
 // after connecting and before it sends anything, so the agent never talks
-// to a listener that isn't the controller's user.
+// to a listener that isn't the controller's user or root.
+//
+// Root has to be allowed: the kernel reports the uid that created the
+// listening socket, and in production that is systemd (uid 0), which then
+// hands it to the controller (waystone-controller-agent.socket). Root is
+// trusted anyway, and only root can create a socket in the root-owned
+// /run/waystone-controller, so any other user is still refused.
 type clientCreds struct {
 	controllerUID uint32
 	uidOf         func(net.Conn) (uint32, error)
@@ -30,7 +36,7 @@ type clientCreds struct {
 
 func (c *clientCreds) ClientHandshake(_ context.Context, _ string, conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
 	uid, err := c.uidOf(conn)
-	if err == nil && uid != c.controllerUID {
+	if err == nil && uid != c.controllerUID && uid != 0 {
 		err = fmt.Errorf("listener uid %d is not the controller", uid)
 	}
 	if err != nil {

@@ -17,16 +17,19 @@ import (
 )
 
 // R2: the agent's handshake refuses a listener that isn't the
-// controller's uid, closing the connection without writing anything.
+// controller's uid or root (systemd made the socket), closing the
+// connection without writing anything.
 func TestClientHandshake(t *testing.T) {
 	for name, c := range map[string]struct {
 		uid  uint32
 		err  error
 		pass bool
 	}{
-		"controller":  {uid: 1000, pass: true},
-		"other user":  {uid: 1001},
-		"no peercred": {err: errors.New("not unix")},
+		"controller":         {uid: 1000, pass: true},
+		"root (socket unit)": {uid: 0, pass: true},
+		"other user":         {uid: 1001},
+		"agent's own uid":    {uid: 995},
+		"no peercred":        {err: errors.New("not unix")},
 	} {
 		a, b := net.Pipe()
 		conn := &writeCounter{Conn: a}
