@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 )
 
 // MaxBodyBytes is the largest request body the API reads (I12).
@@ -75,5 +76,25 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) *apiError {
 		return newError(CodeBadRequest, err)
 	}
 
+	return nil
+}
+
+// checkQuery refuses a query string with a parameter not in allowed, or one
+// that doesn't parse, with bad_request (V4). Without this, a typo such as
+// ?serverid= would quietly be ignored and return every operation.
+func checkQuery(r *http.Request, allowed ...string) *apiError {
+	q, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return newError(CodeBadRequest, err)
+	}
+next:
+	for k := range q {
+		for _, a := range allowed {
+			if k == a {
+				continue next
+			}
+		}
+		return newError(CodeBadRequest, errors.New("unknown query parameter"))
+	}
 	return nil
 }

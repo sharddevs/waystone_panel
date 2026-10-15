@@ -260,6 +260,7 @@ func TestErrorFor(t *testing.T) {
 		{"key reused", wrap(store.ErrIdempotencyKeyReused), CodeIdempotencyKeyReused, ""},
 		{"not uncertain", store.ErrNotUncertain, CodeNotUncertain, ""},
 		{"already resolved", wrap(store.ErrAlreadyResolved), CodeAlreadyResolved, ""},
+		{"node unreachable", wrap(store.ErrNodeUnreachable), CodeNodeUnreachable, ""},
 		{"invalid actor is our bug", fmt.Errorf("%w: name", store.ErrInvalidActor), CodeInternal, ""},
 		{"database down", errors.New("connection refused"), CodeInternal, ""},
 		{"context", context.DeadlineExceeded, CodeInternal, ""},

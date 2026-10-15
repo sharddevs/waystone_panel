@@ -78,9 +78,13 @@ func (f *fakeRunner) got() []string {
 	return slices.Clone(f.calls)
 }
 
-// createOp records an operation as admin A, as the API would.
+// createOp records an operation as admin A, as the API would. The API
+// only accepts one while the node is reachable (V1), so the node is marked
+// as seen first, whether or not an agent is connected yet.
 func (e *env) createOp(t *testing.T, server string, action store.Action) string {
 	t.Helper()
+	mustExec(t, e.owner, `UPDATE waystone.nodes SET last_seen_at = now()
+		WHERE node_id = (SELECT node_id FROM waystone.servers WHERE server_id = '`+server+`')`)
 	var id string
 	err := e.store.InTenantTx(context.Background(), adminA, func(ctx context.Context, tx *store.Tx) error {
 		op, _, err := tx.CreateOperation(ctx, store.CreateOperationInput{ServerID: server, Action: action})

@@ -35,6 +35,9 @@ var (
 	ErrNotUncertain = errors.New("operation is not uncertain")
 	// ErrAlreadyResolved: an uncertain operation is resolved at most once.
 	ErrAlreadyResolved = errors.New("operation already resolved")
+	// ErrNodeUnreachable: the server's node hasn't been seen within
+	// NodeStaleAfter, so a new operation is refused instead of queued (V1).
+	ErrNodeUnreachable = errors.New("node unreachable")
 )
 
 // InProgressError says which operation blocks a new one. errors.Is(err,

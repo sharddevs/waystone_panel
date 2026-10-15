@@ -34,7 +34,7 @@ var nodeActA2 = Actor{Type: ActorNode, ID: nodeA2, Name: "node a2"}
 // addNodeA2 creates nodeA2, its membership and one server on it.
 func addNodeA2(t *testing.T, e *env) {
 	t.Helper()
-	mustExec(t, e.owner, `INSERT INTO waystone.nodes (tenant_id, node_id, name) VALUES ($1, $2, 'node a2')`, tenantA, nodeA2)
+	mustExec(t, e.owner, `INSERT INTO waystone.nodes (tenant_id, node_id, name, last_seen_at) VALUES ($1, $2, 'node a2', '2100-01-01T00:00:00Z')`, tenantA, nodeA2)
 	mustExec(t, e.owner, `INSERT INTO waystone.memberships (tenant_id, actor_type, actor_id, role) VALUES ($1, 'node', $2, 'node')`, tenantA, nodeA2)
 	mustExec(t, e.owner, `INSERT INTO waystone.servers (tenant_id, server_id, node_id, name, profile, runtime)
 		VALUES ($1, $2, $3, 'on a2', 'minecraft-java', 'systemd')`, tenantA, serverOnA2, nodeA2)

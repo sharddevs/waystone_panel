@@ -11,7 +11,7 @@ import (
 // The I12 limits.
 const (
 	// MaxConcurrent is how many requests may run at once. One more gets
-	// 503 server_busy straight away instead of waiting in a queue.
+	// 503 controller_busy straight away instead of waiting in a queue.
 	MaxConcurrent = 32
 	// RateLimit POSTs per actor per RateWindow; the next one gets 429.
 	RateLimit  = 30

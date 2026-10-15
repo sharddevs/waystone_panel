@@ -11,12 +11,14 @@ import (
 
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/store"
+	"github.com/sharddevs/waystone_panel/internal/view"
 )
 
 // The actions the API checks permissions for. The three server actions
 // are the store's Action values; these are the rest.
 const (
 	actionServerList       = "server.list"
+	actionServerRead       = "server.read"
 	actionOperationList    = "operation.list"
 	actionOperationRead    = "operation.read"
 	actionOperationResolve = "operation.resolve"
@@ -45,6 +47,12 @@ type resolveRequest struct {
 // TODO: one line, but keep it a function: stage 5 adds roles here.
 func authorize(role, action string) bool {
 	return role == "admin"
+}
+
+// permits is authorize for one role, in the form view.ServerOf takes:
+// the actions list leaves out what the role may not do (B8).
+func permits(role string) func(store.Action) bool {
+	return func(action store.Action) bool { return authorize(role, string(action)) }
 }
 
 // run is how every API handler touches the database. It opens an
@@ -139,10 +147,17 @@ func (a *API) run(r *http.Request, action, resourceType, resourceID string, fn f
 //
 // TODO
 func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
+	if err := checkQuery(r); err != nil {
+		a.writeError(w, r, err)
+		return
+	}
+
 	var servers []store.Server
+	var role string
 
 	err := a.run(r, actionServerList, "server", "*", func(ctx context.Context, tx *store.Tx) error {
 		var err error
+		role = tx.Role()
 		servers, err = tx.ListServers(ctx)
 		return err
 	})
@@ -152,14 +167,48 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := make([]serverJSON, 0, len(servers))
+	now := a.now()
 
 	for _, server := range servers {
-		result = append(result, toServerJSON(server, a.now()))
+		result = append(result, view.ServerOf(server, permits(role), now))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"servers": result,
 	})
+}
+
+// handleGetServer: GET /api/v1/servers/{id} → 200 with the server, in the
+// same shape as the list (A2). A bad ID is bad_request before run; a
+// server in another tenant is not_found, the same as a missing one.
+func (a *API) handleGetServer(w http.ResponseWriter, r *http.Request) {
+	if err := checkQuery(r); err != nil {
+		a.writeError(w, r, err)
+		return
+	}
+
+	id := r.PathValue("id")
+
+	if err := ids.Check(id); err != nil {
+		a.writeError(w, r, newError(CodeBadRequest, err))
+		return
+	}
+
+	var server store.Server
+	var role string
+
+	err := a.run(r, actionServerRead, "server", id, func(ctx context.Context, tx *store.Tx) error {
+		var err error
+		role = tx.Role()
+		server, err = tx.GetServer(ctx, id)
+		return err
+	})
+	if err != nil {
+		a.writeError(w, r, errorFor(err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, view.ServerOf(server, permits(role), a.now()))
 }
 
 // handleAction returns the handler for POST route, which creates an
@@ -180,6 +229,11 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 // TODO
 func (a *API) handleAction(action store.Action, route string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if err := checkQuery(r); err != nil {
+			a.writeError(w, r, err)
+			return
+		}
+
 		id := r.PathValue("id")
 
 		if err := ids.Check(id); err != nil {
@@ -239,7 +293,7 @@ func (a *API) handleAction(action store.Action, route string) http.HandlerFunc {
 			}
 		}
 
-		writeJSON(w, status, toOperationJSON(operation))
+		writeJSON(w, status, view.OperationOf(operation))
 	}
 }
 
@@ -248,10 +302,16 @@ func (a *API) handleAction(action store.Action, route string) http.HandlerFunc {
 // optional (default defaultListLimit); a value that isn't a number is
 // bad_request, and the store checks the range. The denial's resource is
 // ("server", server_id), or ("server", "*") without one; a server_id that
-// isn't a UUID is bad_request before run.
+// isn't a UUID is bad_request before run. Any other query parameter
+// is bad_request too (V4).
 //
 // TODO
 func (a *API) handleListOperations(w http.ResponseWriter, r *http.Request) {
+	if err := checkQuery(r, "server_id", "limit"); err != nil {
+		a.writeError(w, r, err)
+		return
+	}
+
 	serverID := r.URL.Query().Get("server_id")
 
 	if serverID != "" {
@@ -290,7 +350,7 @@ func (a *API) handleListOperations(w http.ResponseWriter, r *http.Request) {
 	result := make([]operationJSON, 0, len(operations))
 
 	for _, operation := range operations {
-		result = append(result, toOperationJSON(operation))
+		result = append(result, view.OperationOf(operation))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -304,6 +364,11 @@ func (a *API) handleListOperations(w http.ResponseWriter, r *http.Request) {
 //
 // TODO
 func (a *API) handleGetOperation(w http.ResponseWriter, r *http.Request) {
+	if err := checkQuery(r); err != nil {
+		a.writeError(w, r, err)
+		return
+	}
+
 	id := r.PathValue("id")
 
 	if err := ids.Check(id); err != nil {
@@ -323,7 +388,7 @@ func (a *API) handleGetOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, toOperationJSON(operation))
+	writeJSON(w, http.StatusOK, view.OperationOf(operation))
 }
 
 // handleResolve: POST /api/v1/operations/{id}/resolve with a
@@ -333,6 +398,11 @@ func (a *API) handleGetOperation(w http.ResponseWriter, r *http.Request) {
 //
 // TODO
 func (a *API) handleResolve(w http.ResponseWriter, r *http.Request) {
+	if err := checkQuery(r); err != nil {
+		a.writeError(w, r, err)
+		return
+	}
+
 	id := r.PathValue("id")
 
 	if err := ids.Check(id); err != nil {
@@ -364,7 +434,7 @@ func (a *API) handleResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, toOperationJSON(operation))
+	writeJSON(w, http.StatusOK, view.OperationOf(operation))
 }
 
 // handleNotFound answers every path (and method) no route matches, so

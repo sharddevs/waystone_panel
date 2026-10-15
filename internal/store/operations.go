@@ -146,6 +146,8 @@ func scanOperation(row pgx.Row) (Operation, error) {
 //     - otherwise the same fingerprint means a retry, so we return the
 //     original operation with replayed=true, whatever its state. A
 //     different fingerprint is ErrIdempotencyKeyReused.
+//     Then, if the server's node isn't reachable (NodeReachable at
+//     t.Now()), ErrNodeUnreachable; nothing is written (V1).
 //  4. If the server already has a pending, running or unresolved
 //     uncertain operation, return an *InProgressError naming it.
 //  5. Insert the operation as pending and set the server's desired state.
@@ -263,6 +265,24 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 				return existingOp, true, nil
 			}
 		}
+	}
+
+	// A new request for a node that isn't reachable is refused rather than
+	// queued (V1). This comes after the replay check, so a retry of a
+	// request accepted earlier still gets its operation, and before the
+	// blocking check, matching the order of the B8 reason codes.
+	var lastSeen *time.Time
+	err = t.tx.QueryRow(ctx, `
+    SELECT last_seen_at
+    FROM waystone.nodes
+    WHERE tenant_id = $1 AND node_id = $2
+`, t.TenantID(), nodeID).Scan(&lastSeen)
+	if err != nil {
+		// The foreign key on servers means the node row exists.
+		return Operation{}, false, fmt.Errorf("check node: %w", err)
+	}
+	if !NodeReachable(lastSeen, t.Now()) {
+		return Operation{}, false, ErrNodeUnreachable
 	}
 
 	// Step 4. An unresolved uncertain operation blocks too: nobody knows

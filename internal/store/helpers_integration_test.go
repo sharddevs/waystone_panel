@@ -115,8 +115,11 @@ func setup(t *testing.T) *env {
 			('` + tenantA + `', 'local_user', '3000', 'admin'),
 			('` + tenantB + `', 'local_user', '3000', 'admin'),
 			('` + tenantA + `', 'node', '` + nodeA + `', 'node')`,
-		`INSERT INTO waystone.nodes (tenant_id, node_id, name) VALUES
-			('` + tenantA + `', '` + nodeA + `', 'node a'), ('` + tenantB + `', '` + nodeB + `', 'node b')`,
+		// Both nodes count as reachable for every clock these tests use
+		// (V1). A test about reachability sets last_seen_at itself.
+		`INSERT INTO waystone.nodes (tenant_id, node_id, name, last_seen_at) VALUES
+			('` + tenantA + `', '` + nodeA + `', 'node a', '2100-01-01T00:00:00Z'),
+			('` + tenantB + `', '` + nodeB + `', 'node b', '2100-01-01T00:00:00Z')`,
 		`INSERT INTO waystone.servers (tenant_id, server_id, node_id, name, profile, runtime) VALUES
 			('` + tenantA + `', '` + serverA1 + `', '` + nodeA + `', 'a1', 'minecraft-java', 'systemd'),
 			('` + tenantA + `', '` + serverA2 + `', '` + nodeA + `', 'a2', 'minecraft-java', 'systemd'),

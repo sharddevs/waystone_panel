@@ -7,6 +7,7 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -172,4 +173,126 @@ func opIDs(ops []Operation) []string {
 		out[i] = op.ID
 	}
 	return out
+}
+
+func getServer(e *env, actor Actor, id string) (Server, error) {
+	var out Server
+	err := e.store.InTenantTx(context.Background(), actor, func(ctx context.Context, tx *Tx) error {
+		var err error
+		out, err = tx.GetServer(ctx, id)
+		return err
+	})
+	return out, err
+}
+
+// The node, profile and runtime columns, the blocking operation, and
+// GetServer.
+func TestServerDetails(t *testing.T) {
+	e := setup(t)
+
+	s, err := getServer(e, adminA, serverA1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ID != serverA1 || s.NodeName != "node a" || s.NodeLastSeenAt == nil || s.Runtime != "systemd" ||
+		s.ProfileVersion != nil || s.Blocking != "" {
+		t.Errorf("a1 = %+v", s)
+	}
+	if l := listServers(t, e, adminA); !reflect.DeepEqual(l[0], s) {
+		t.Errorf("GetServer = %+v\nlist item = %+v", s, l[0])
+	}
+
+	mustExec(t, e.owner, `UPDATE waystone.servers SET config = '{"version": "26.3"}' WHERE server_id = $1`, serverA1)
+	mustExec(t, e.owner, `UPDATE waystone.nodes SET last_seen_at = NULL WHERE node_id = $1`, nodeA)
+	if s, _ := getServer(e, adminA, serverA1); s.ProfileVersion == nil || *s.ProfileVersion != "26.3" || s.NodeLastSeenAt != nil {
+		t.Errorf("after update: %+v", s)
+	}
+	mustExec(t, e.owner, `UPDATE waystone.nodes SET last_seen_at = '2100-01-01' WHERE node_id = $1`, nodeA)
+
+	// Blocking: pending, running, unresolved uncertain; nothing once it is
+	// finished or resolved. Only this server's operations count.
+	op, _, err := e.create(adminA, CreateOperationInput{ServerID: serverA1, Action: ActionStart})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := func(name string, state OperationState) {
+		t.Helper()
+		l := listServers(t, e, adminA)
+		if l[0].Blocking != state || l[1].Blocking != "" {
+			t.Errorf("%s: blocking = %q / %q, want %q / \"\"", name, l[0].Blocking, l[1].Blocking, state)
+		}
+	}
+	want("pending", StatePending)
+	e.setState(t, op.ID, StateRunning)
+	want("running", StateRunning)
+	e.setState(t, op.ID, StateUncertain)
+	want("uncertain", StateUncertain)
+	mustExec(t, e.owner, `UPDATE waystone.operations SET resolved_at = now(), resolved_outcome = 'failed',
+		resolved_by_type = 'local_user', resolved_by_id = '1000', resolved_by_name = 'admin a' WHERE operation_id = $1`, op.ID)
+	want("resolved", "")
+
+	// Missing, another tenant's, malformed.
+	if _, err := getServer(e, adminA, missingServer); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing: %v", err)
+	}
+	if _, err := getServer(e, adminA, serverB1); !errors.Is(err, ErrNotFound) {
+		t.Errorf("other tenant: %v", err)
+	}
+	if _, err := getServer(e, adminA, "nope"); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("malformed: %v", err)
+	}
+}
+
+// V1: CreateOperation refuses a node not seen within NodeStaleAfter of the
+// store's clock, writes nothing, and still replays an accepted request.
+func TestCreateOperationNodeUnreachable(t *testing.T) {
+	e := setup(t)
+	seen := func(at any) {
+		t.Helper()
+		mustExec(t, e.owner, `UPDATE waystone.nodes SET last_seen_at = $1 WHERE node_id = $2`, at, nodeA)
+	}
+	count := func() (ops, keys int) {
+		t.Helper()
+		if err := e.owner.QueryRow(context.Background(),
+			`SELECT (SELECT count(*) FROM waystone.operations), (SELECT count(*) FROM waystone.idempotency_keys)`).Scan(&ops, &keys); err != nil {
+			t.Fatal(err)
+		}
+		return ops, keys
+	}
+	fp := [32]byte{1}
+
+	first, _, err := e.create(adminA, CreateOperationInput{ServerID: serverA1, Action: ActionStart, IdempotencyKey: "k1", RequestSHA256: fp})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seen(nil)
+	ops, keys := count()
+	if _, _, err := e.create(adminA, CreateOperationInput{ServerID: serverA2, Action: ActionStart, IdempotencyKey: "k2", RequestSHA256: fp}); !errors.Is(err, ErrNodeUnreachable) {
+		t.Fatalf("never seen: %v", err)
+	}
+	if o, k := count(); o != ops || k != keys {
+		t.Errorf("refusal wrote rows: %d/%d -> %d/%d", ops, keys, o, k)
+	}
+	if s, _ := getServer(e, adminA, serverA2); s.DesiredState != "stopped" {
+		t.Errorf("desired_state = %q, want stopped", s.DesiredState)
+	}
+	// Unreachable comes before the blocking check.
+	if _, _, err := e.create(adminA, CreateOperationInput{ServerID: serverA1, Action: ActionStop}); !errors.Is(err, ErrNodeUnreachable) {
+		t.Errorf("blocked and unreachable: %v", err)
+	}
+	// A retry of the accepted request still gets it.
+	again, replayed, err := e.create(adminA, CreateOperationInput{ServerID: serverA1, Action: ActionStart, IdempotencyKey: "k1", RequestSHA256: fp})
+	if err != nil || !replayed || again.ID != first.ID {
+		t.Errorf("replay = %v %v %v", again.ID, replayed, err)
+	}
+
+	seen(e.clock.now.Add(-NodeStaleAfter - time.Second))
+	if _, _, err := e.create(adminA, CreateOperationInput{ServerID: serverA2, Action: ActionStart}); !errors.Is(err, ErrNodeUnreachable) {
+		t.Errorf("46 s ago: %v", err)
+	}
+	seen(e.clock.now.Add(-NodeStaleAfter))
+	if _, _, err := e.create(adminA, CreateOperationInput{ServerID: serverA2, Action: ActionStart}); err != nil {
+		t.Errorf("45 s ago: %v", err)
+	}
 }

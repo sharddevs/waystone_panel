@@ -25,7 +25,8 @@ const (
 	CodeUnsupportedMediaType       = "unsupported_media_type"
 	CodeIdempotencyKeyReused       = "idempotency_key_reused"
 	CodeRateLimited                = "rate_limited"
-	CodeServerBusy                 = "server_busy"
+	CodeControllerBusy             = "controller_busy"
+	CodeNodeUnreachable            = "node_unreachable"
 	CodeInternal                   = "internal"
 )
 
@@ -48,7 +49,8 @@ var errorInfo = map[string]struct {
 	CodeUnsupportedMediaType:       {http.StatusUnsupportedMediaType, "The request body must be application/json."},
 	CodeIdempotencyKeyReused:       {http.StatusUnprocessableEntity, "This Idempotency-Key was already used for a different request."},
 	CodeRateLimited:                {http.StatusTooManyRequests, "Too many requests. Try again later."},
-	CodeServerBusy:                 {http.StatusServiceUnavailable, "The controller is busy. Try again shortly."},
+	CodeControllerBusy:             {http.StatusServiceUnavailable, "The controller is busy. Try again shortly."},
+	CodeNodeUnreachable:            {http.StatusConflict, "The server's node is not connected. Try again once it is back."},
 	CodeInternal:                   {http.StatusInternalServerError, "Internal error."},
 }
 
@@ -127,6 +129,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 //   - ErrNotFound: not_found.  ErrInvalidInput: bad_request.
 //   - ErrIdempotencyKeyReused: idempotency_key_reused.
 //   - ErrNotUncertain: not_uncertain.  ErrAlreadyResolved: already_resolved.
+//   - ErrNodeUnreachable: node_unreachable (no operation ID).
 //   - anything else (ErrInvalidActor included: the actor comes from the
 //     kernel, so a bad one is our bug): internal.
 //
@@ -174,6 +177,9 @@ func errorFor(err error) *apiError {
 
 	case errors.Is(err, store.ErrAlreadyResolved):
 		return newError(CodeAlreadyResolved, err)
+
+	case errors.Is(err, store.ErrNodeUnreachable):
+		return newError(CodeNodeUnreachable, err)
 
 	default:
 		return newError(CodeInternal, err)

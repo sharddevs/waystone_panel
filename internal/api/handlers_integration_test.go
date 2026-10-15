@@ -306,7 +306,8 @@ func TestListServers(t *testing.T) {
 		t.Fatalf("servers = %+v, want a1, a2", body.Servers)
 	}
 	s := body.Servers[1]
-	if s.Name != "a2" || s.NodeID != nodeA || s.Profile != "minecraft-java" || s.DesiredState != "stopped" ||
+	if s.Name != "a2" || s.Node.ID != nodeA || s.Node.Name != "node a" || s.Node.Reachability.State != "reachable" ||
+		s.Profile.ID != "minecraft-java" || s.Profile.Version != nil || s.Runtime != "systemd" || s.DesiredState != "stopped" ||
 		s.Process.State != "running" || s.Process.Since == nil || !s.Process.Since.Equal(seen) ||
 		s.Readiness.State != "unknown" || s.Readiness.Since != nil {
 		t.Errorf("a2 = %+v", s)

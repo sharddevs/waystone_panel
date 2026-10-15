@@ -44,7 +44,7 @@ func (a *API) logf(format string, args ...any) { a.log.Printf(format, args...) }
 //
 // Every request, from the outside in, goes through: withRequestID,
 // logRequests, withRecover, limitConcurrency (MaxConcurrent; busy →
-// server_busy), then the mux. The /api/v1 routes are also wrapped in
+// controller_busy), then the mux. The /api/v1 routes are also wrapped in
 // withActor and then withRateLimit; /healthz isn't, because it needs no
 // identity.
 //
@@ -88,6 +88,7 @@ func New(cfg Config) http.Handler {
 	apiMux := http.NewServeMux()
 
 	apiMux.HandleFunc("GET /api/v1/servers", a.handleListServers)
+	apiMux.HandleFunc("GET /api/v1/servers/{id}", a.handleGetServer)
 
 	apiMux.HandleFunc(
 		"POST /api/v1/servers/{id}/start",
@@ -123,7 +124,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("/", a.handleNotFound)
 
 	busy := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		a.writeError(w, r, newError(CodeServerBusy, nil))
+		a.writeError(w, r, newError(CodeControllerBusy, nil))
 	})
 
 	var handler http.Handler = mux
