@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The controller's browser-facing socket: root:waystone-web 0660. Only the
+# reverse proxy's user belongs to waystone-web, so only the proxy can
+# connect, and the controller then accepts only the uid it was given with
+# -proxy-uid. Browsers reach it through the proxy, never directly.
+[Unit]
+Description=Waystone controller web socket
+
+[Socket]
+ListenStream=/run/waystone-controller/web.sock
+FileDescriptorName=waystone-controller-web
+Service=waystone-controller.service
+SocketUser=root
+SocketGroup=waystone-web
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+
+[Install]
+WantedBy=sockets.target

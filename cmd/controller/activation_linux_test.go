@@ -14,8 +14,9 @@ import (
 	"testing"
 )
 
-// D2: under socket activation the controller takes the API socket and,
-// if present, the agent socket, by name. Anything else is refused. Each
+// D2 and W5: under socket activation the controller takes the API and web
+// sockets and, if present, the agent socket, by name. Anything else, or
+// either required socket missing, is refused. Each
 // case runs in a child process that gets real descriptors 3 and up, the
 // way systemd passes them.
 func TestActivatedListeners(t *testing.T) {
@@ -25,7 +26,7 @@ func TestActivatedListeners(t *testing.T) {
 	}
 	dir := t.TempDir()
 	var files []*os.File
-	for _, name := range []string{"one", "two", "three"} {
+	for _, name := range []string{"one", "two", "three", "four"} {
 		l, err := net.Listen("unix", filepath.Join(dir, name+".sock"))
 		if err != nil {
 			t.Fatal(err)
@@ -42,12 +43,18 @@ func TestActivatedListeners(t *testing.T) {
 		names string
 		want  string
 	}{
-		{"waystone-controller-api", "api=one agent=none"},
-		{"waystone-controller-api:waystone-controller-agent", "api=one agent=two"},
-		{"waystone-controller-agent:waystone-controller-api", "api=two agent=one"},
+		{"waystone-controller-api:waystone-controller-web", "api=one web=two agent=none"},
+		{"waystone-controller-api:waystone-controller-web:waystone-controller-agent", "api=one web=two agent=three"},
+		{"waystone-controller-agent:waystone-controller-web:waystone-controller-api", "api=three web=two agent=one"},
+		{"waystone-controller-web:waystone-controller-api", "api=two web=one agent=none"},
+		{"waystone-controller-api", "error"},
+		{"waystone-controller-api:waystone-controller-agent", "error"},
+		{"waystone-controller-web", "error"},
+		{"waystone-controller-web:waystone-controller-agent", "error"},
 		{"waystone-controller-agent", "error"},
-		{"waystone-controller-api:something-else", "error"},
-		{"waystone-controller-api:waystone-controller-agent:extra", "error"},
+		{"waystone-controller-api:waystone-controller-web:something-else", "error"},
+		{"waystone-controller-api:waystone-controller-web:waystone-controller-agent:extra", "error"},
+		{"waystone-controller-api:waystone-controller-api", "error"},
 	}
 	for _, c := range cases {
 		n := len(strings.Split(c.names, ":"))
@@ -72,7 +79,7 @@ func activationChild() {
 		}
 		return os.Getenv(k)
 	}
-	api, agent, err := listeners("", "", os.Getpid(), getenv)
+	socks, err := listeners("", "", "", os.Getpid(), getenv)
 	if err != nil {
 		os.Stdout.WriteString("RESULT error\n")
 		return
@@ -83,5 +90,5 @@ func activationChild() {
 		}
 		return strings.TrimSuffix(filepath.Base(l.Addr().String()), ".sock")
 	}
-	os.Stdout.WriteString("RESULT api=" + name(api) + " agent=" + name(agent) + "\n")
+	os.Stdout.WriteString("RESULT api=" + name(socks.api) + " web=" + name(socks.web) + " agent=" + name(socks.agent) + "\n")
 }

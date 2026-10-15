@@ -61,7 +61,7 @@ func TestRunBadAgentFlags(t *testing.T) {
 // Without -api-socket, -agent-socket is refused: dev sockets come as a
 // pair, and production gets both from systemd.
 func TestAgentSocketNeedsDevMode(t *testing.T) {
-	_, _, err := listeners("", "/tmp/agent.sock", 4242, func(string) string { return "" })
+	_, err := listeners("", "", "/tmp/agent.sock", 4242, func(string) string { return "" })
 	if err == nil {
 		t.Fatal("agent socket without -api-socket was accepted")
 	}

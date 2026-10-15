@@ -56,7 +56,7 @@ func TestShutdownEndsAgentStreams(t *testing.T) {
 
 	server := newServer(http.NotFoundHandler())
 	start := time.Now()
-	if !shutdown(server, link, 3*time.Second, io.Discard) {
+	if !shutdown(server, nil, link, 3*time.Second, io.Discard) {
 		t.Error("shutdown ran out of budget")
 	}
 	if took := time.Since(start); took > time.Second {

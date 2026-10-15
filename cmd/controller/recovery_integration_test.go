@@ -95,8 +95,10 @@ func TestRunRecoversBeforeServing(t *testing.T) {
 
 	stderr := &lockedBuilder{}
 	done := make(chan int, 1)
+	dir := t.TempDir()
 	go func() {
-		done <- run([]string{"-db", appDSN, "-api-socket", filepath.Join(t.TempDir(), "api.sock")}, stderr)
+		done <- run([]string{"-db", appDSN, "-api-socket", filepath.Join(dir, "api.sock"), "-web-socket", filepath.Join(dir, "web.sock"),
+			"-public-url", "https://panel.example.com", "-proxy-uid", "4242"}, stderr)
 	}()
 	deadline := time.Now().Add(10 * time.Second)
 	for !strings.Contains(stderr.String(), "listening on") {

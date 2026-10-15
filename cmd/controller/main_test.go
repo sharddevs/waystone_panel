@@ -43,10 +43,10 @@ func TestNewServerLimits(t *testing.T) {
 // It must never fall back to opening a socket (or a TCP port) of its own.
 func TestAPIListenerNeedsActivation(t *testing.T) {
 	noEnv := func(string) string { return "" }
-	l, _, err := listeners("", "", 4242, noEnv)
+	socks, err := listeners("", "", "", 4242, noEnv)
 	if err == nil {
-		l.Close()
-		t.Fatalf("listeners with no socket path and no activation = %v, want an error", l.Addr())
+		socks.close()
+		t.Fatal("listeners with no socket path and no activation succeeded, want an error")
 	}
 }
 
@@ -71,7 +71,8 @@ func TestRunBadFlags(t *testing.T) {
 func TestRunDatabaseFailure(t *testing.T) {
 	dir := t.TempDir()
 	dsn := "host=" + dir + " dbname=nope user=nobody connect_timeout=2"
-	code := run([]string{"-db", dsn, "-api-socket", dir + "/api.sock"}, io.Discard)
+	code := run([]string{"-db", dsn, "-api-socket", dir + "/api.sock", "-web-socket", dir + "/web.sock",
+		"-public-url", "https://panel.example.com", "-proxy-uid", "4242"}, io.Discard)
 	if code != 1 {
 		t.Errorf("run with an unreachable database = %d, want 1", code)
 	}

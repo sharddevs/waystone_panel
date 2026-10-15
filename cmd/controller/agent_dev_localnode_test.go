@@ -15,11 +15,13 @@ import (
 func TestListenAgentDev(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agent.sock")
-	api, agent, err := listeners(filepath.Join(dir, "api.sock"), path, 4242, func(string) string { return "" })
+	socks, err := listeners(filepath.Join(dir, "api.sock"), filepath.Join(dir, "web.sock"), path, 4242, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer api.Close()
+	defer socks.api.Close()
+	defer socks.web.Close()
+	agent := socks.agent
 	info, err := os.Lstat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +40,8 @@ func TestListenAgentDev(t *testing.T) {
 		t.Fatal(err)
 	}
 	apiPath := filepath.Join(dir, "api2.sock")
-	if _, _, err := listeners(apiPath, path, 4242, func(string) string { return "" }); err == nil {
+	webPath := filepath.Join(dir, "web2.sock")
+	if _, err := listeners(apiPath, webPath, path, 4242, func(string) string { return "" }); err == nil {
 		t.Fatal("existing path accepted")
 	}
 	if b, _ := os.ReadFile(path); string(b) != "not ours" {
@@ -46,5 +49,8 @@ func TestListenAgentDev(t *testing.T) {
 	}
 	if _, err := os.Lstat(apiPath); !os.IsNotExist(err) {
 		t.Errorf("API socket left behind after the agent socket failed: %v", err)
+	}
+	if _, err := os.Lstat(webPath); !os.IsNotExist(err) {
+		t.Errorf("web socket left behind after the agent socket failed: %v", err)
 	}
 }

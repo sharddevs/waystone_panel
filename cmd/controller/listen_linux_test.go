@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,15 +95,39 @@ func TestListenDevRefusesExistingPath(t *testing.T) {
 	}
 }
 
-// With -api-socket, listeners is dev mode and ignores activation.
-func TestAPIListenerDevMode(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "api.sock")
-	l, _, err := listeners(path, "", 4242, func(string) string { return "" })
+// With -api-socket and -web-socket, listeners is dev mode and ignores
+// activation. One without the other is refused (W5).
+func TestDevModeListeners(t *testing.T) {
+	dir := t.TempDir()
+	api, webPath := filepath.Join(dir, "api.sock"), filepath.Join(dir, "web.sock")
+	socks, err := listeners(api, webPath, "", 4242, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
-	if got := l.Addr().String(); got != path {
-		t.Errorf("listening on %q, want %q", got, path)
+	defer socks.close()
+	if got := socks.api.Addr().String(); got != api {
+		t.Errorf("API listening on %q, want %q", got, api)
+	}
+	if got := socks.web.Addr().String(); got != webPath {
+		t.Errorf("web listening on %q, want %q", got, webPath)
+	}
+	if socks.agent != nil {
+		t.Error("an agent socket without -agent-socket")
+	}
+	for _, c := range [][2]string{{filepath.Join(dir, "a2.sock"), ""}, {"", filepath.Join(dir, "w2.sock")}} {
+		if s, err := listeners(c[0], c[1], "", 4242, func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), "both -api-socket and -web-socket") {
+			if err == nil {
+				s.close()
+			}
+			t.Errorf("dev mode with api=%q web=%q: err = %v, want both sockets required", c[0], c[1], err)
+		}
+	}
+	// A failed web socket doesn't leave the API socket behind.
+	if s, err := listeners(filepath.Join(dir, "a3.sock"), webPath, "", 4242, func(string) string { return "" }); err == nil {
+		s.close()
+		t.Fatal("a web socket path that already exists was accepted")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "a3.sock")); err == nil {
+		t.Error("the API socket was left behind after the web socket failed")
 	}
 }

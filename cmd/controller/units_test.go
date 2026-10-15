@@ -45,7 +45,7 @@ func readUnit(t *testing.T, name string) map[string]string {
 }
 
 // The socket units are what systemd hands the controller, and listeners()
-// refuses anything but these two names. A unit that drifts from the code
+// refuses anything but these three names. A unit that drifts from the code
 // would only show up on the VM, so this pins them together.
 func TestSocketUnits(t *testing.T) {
 	cases := []struct {
@@ -53,6 +53,7 @@ func TestSocketUnits(t *testing.T) {
 	}{
 		{"waystone-controller-api.socket", apiSocketName, "/run/waystone-controller/api.sock", adminGroup},
 		{"waystone-controller-agent.socket", agentSocketName, "/run/waystone-controller/agent.sock", "waystone-agent"},
+		{"waystone-controller-web.socket", webSocketName, "/run/waystone-controller/web.sock", "waystone-web"},
 	}
 	for _, c := range cases {
 		u := readUnit(t, c.file)
@@ -65,6 +66,7 @@ func TestSocketUnits(t *testing.T) {
 			"Socket.SocketMode":         "0660",
 			"Socket.DirectoryMode":      "0755",
 			"Socket.Accept":             "no",
+			"Install.WantedBy":          "sockets.target",
 		}
 		for k, v := range want {
 			if u[k] != v {
@@ -74,14 +76,17 @@ func TestSocketUnits(t *testing.T) {
 	}
 }
 
-// The service must name exactly the two sockets, run as its own user, and
-// its ExecStart must be a command line the controller accepts.
+// The service must name exactly the three sockets, run as its own user,
+// and its ExecStart must be a command line the controller accepts, with
+// each env value reaching the flag it's meant for.
 func TestControllerServiceUnit(t *testing.T) {
 	u := readUnit(t, "waystone-controller.service")
 	want := map[string]string{
 		"Service.User":            "waystone-controller",
 		"Service.Group":           "waystone-controller",
-		"Service.Sockets":         "waystone-controller-api.socket waystone-controller-agent.socket",
+		"Service.Sockets":         "waystone-controller-api.socket waystone-controller-web.socket waystone-controller-agent.socket",
+		"Unit.Requires":           "waystone-controller-api.socket waystone-controller-web.socket waystone-controller-agent.socket",
+		"Service.Environment":     "WAYSTONE_HSTS_MAX_AGE=300",
 		"Service.EnvironmentFile": "/etc/waystone/controller.env",
 		"Service.Restart":         "on-failure",
 	}
@@ -95,18 +100,37 @@ func TestControllerServiceUnit(t *testing.T) {
 	if len(exec) == 0 || exec[0] != "/usr/local/bin/waystone-controller" {
 		t.Fatalf("ExecStart = %q", u["Service.ExecStart"])
 	}
-	// Fill in the env values, with a node ID that isn't a UUID: run then
-	// stops at the node check, after every flag has parsed and before
-	// anything connects. An unknown flag would fail earlier, differently.
-	args := strings.NewReplacer(
-		"${WAYSTONE_AGENT_UID}", "995",
-		"${WAYSTONE_NODE_ID}", "not-a-uuid",
-	).Replace(strings.Join(exec[1:], " "))
-	if strings.Contains(args, "$") {
-		t.Fatalf("ExecStart uses an env value this test doesn't know: %q", args)
+	// Fill in the env values with one value broken at a time. run then
+	// stops at that value's own check, after every flag has parsed and
+	// before anything connects, which proves the value reached the right
+	// flag. An unknown flag would fail earlier, differently.
+	good := map[string]string{
+		"${WAYSTONE_AGENT_UID}":    "995",
+		"${WAYSTONE_NODE_ID}":      "0199e1a0-0000-7000-8000-0000000000a1",
+		"${WAYSTONE_PUBLIC_URL}":   "https://panel.example.com",
+		"${WAYSTONE_PROXY_UID}":    "4242",
+		"${WAYSTONE_HSTS_MAX_AGE}": "300",
 	}
-	var stderr bytes.Buffer
-	if code := run(strings.Fields(args), &stderr); code != 2 || !strings.HasPrefix(stderr.String(), "-agent-node:") {
-		t.Fatalf("run(%q) = %d, stderr %q; want 2 from the node check", args, code, stderr.String())
+	for _, c := range []struct{ key, bad, prefix string }{
+		{"${WAYSTONE_NODE_ID}", "not-a-uuid", "-agent-node:"},
+		{"${WAYSTONE_PUBLIC_URL}", "http://panel.example.com", "-public-url:"},
+		{"${WAYSTONE_PROXY_UID}", "0", "-proxy-uid 0"},
+		{"${WAYSTONE_HSTS_MAX_AGE}", "0", "-hsts-max-age 0"},
+	} {
+		var pairs []string
+		for k, v := range good {
+			if k == c.key {
+				v = c.bad
+			}
+			pairs = append(pairs, k, v)
+		}
+		args := strings.NewReplacer(pairs...).Replace(strings.Join(exec[1:], " "))
+		if strings.Contains(args, "$") {
+			t.Fatalf("ExecStart uses an env value this test doesn't know: %q", args)
+		}
+		var stderr bytes.Buffer
+		if code := run(strings.Fields(args), &stderr); code != 2 || !strings.HasPrefix(stderr.String(), c.prefix) {
+			t.Errorf("%s=%s: run(%q) = %d, stderr %q; want 2 from %q", c.key, c.bad, args, code, stderr.String(), c.prefix)
+		}
 	}
 }

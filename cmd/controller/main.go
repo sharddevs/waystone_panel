@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Command controller runs the Waystone controller. It serves the HTTP API
-// on a Unix socket only and, when configured, the agent link on a second
-// one. "controller migrate -db <dsn>" applies the database migrations.
+// Command controller runs the Waystone controller. It serves the local
+// HTTP API on a Unix socket, the browser-facing side (behind the proxy) on
+// a second one and, when configured, the agent link on a third. It never
+// opens a TCP port. "controller migrate -db <dsn>" applies the database
+// migrations.
 package main
 
 import (
@@ -27,6 +29,7 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/sdlisten"
 	"github.com/sharddevs/waystone_panel/internal/store"
+	"github.com/sharddevs/waystone_panel/internal/web"
 )
 
 const version = "0.1.0-alpha"
@@ -39,11 +42,12 @@ const defaultDSN = "host=/var/run/postgresql dbname=waystone user=waystone_app"
 // SIGTERM or SIGINT. The HTTP server and the agent link share it (R10).
 const shutdownTimeout = 10 * time.Second
 
-// The names systemd gives the two sockets (FileDescriptorName= in the
-// socket units, installed in 4c).
+// The names systemd gives the sockets (FileDescriptorName= in the socket
+// units: api and agent from 4c, web from stage WS).
 const (
 	apiSocketName   = "waystone-controller-api"
 	agentSocketName = "waystone-controller-agent"
+	webSocketName   = "waystone-controller-web"
 )
 
 // adminGroup: an agent uid in this group would hold admin rights too
@@ -78,50 +82,91 @@ func newServer(handler http.Handler) *http.Server {
 	}
 }
 
-// listeners returns the API socket and the agent socket, which may be
-// nil.
+// sockets are the controller's listeners. agent may be nil.
+type sockets struct {
+	api, web, agent net.Listener
+}
+
+func (s sockets) close() {
+	for _, l := range []net.Listener{s.api, s.web, s.agent} {
+		if l != nil {
+			l.Close()
+		}
+	}
+}
+
+// listeners returns the API, web and agent sockets; the agent socket may
+// be nil.
 //
-// Dev mode is -api-socket: listenDev for the API, and listenAgentDev for
-// -agent-socket if it's set (localnode builds only). Otherwise systemd
-// must have passed the sockets (socket activation), named apiSocketName
-// and, optionally, agentSocketName (D2). Any other socket is refused.
-// There is never a fallback that opens a socket or port of its own.
-func listeners(apiSocket, agentSocket string, pid int, getenv func(string) string) (api, agent net.Listener, err error) {
-	if apiSocket != "" {
-		api, err = listenDev(apiSocket)
-		if err != nil || agentSocket == "" {
-			return api, nil, err
+// Dev mode is -api-socket, which also needs -web-socket (W5: there is no
+// controller without its browser-facing socket): listenDev for both, and
+// listenAgentDev for -agent-socket if it's set (localnode builds only).
+// Otherwise systemd must have passed the sockets (socket activation),
+// named apiSocketName and webSocketName and, optionally, agentSocketName
+// (D2). Any other socket is refused. There is never a fallback that opens
+// a socket or port of its own.
+func listeners(apiSocket, webSocket, agentSocket string, pid int, getenv func(string) string) (sockets, error) {
+	var s sockets
+	if apiSocket != "" || webSocket != "" {
+		if apiSocket == "" || webSocket == "" {
+			return s, errors.New("dev mode needs both -api-socket and -web-socket")
 		}
-		agent, err = listenAgentDev(agentSocket)
-		if err != nil {
-			api.Close()
-			return nil, nil, fmt.Errorf("agent socket: %w", err)
+		var err error
+		if s.api, err = listenDev(apiSocket); err != nil {
+			return sockets{}, err
 		}
-		return api, agent, nil
+		if s.web, err = listenDev(webSocket); err != nil {
+			s.close()
+			return sockets{}, fmt.Errorf("web socket: %w", err)
+		}
+		if agentSocket == "" {
+			return s, nil
+		}
+		if s.agent, err = listenAgentDev(agentSocket); err != nil {
+			s.close()
+			return sockets{}, fmt.Errorf("agent socket: %w", err)
+		}
+		return s, nil
 	}
 	if agentSocket != "" {
-		return nil, nil, errors.New("-agent-socket is dev mode and needs -api-socket")
+		return s, errors.New("-agent-socket is dev mode and needs -api-socket")
 	}
 
 	fds, err := sdlisten.Listeners(pid, getenv)
 	if err != nil {
-		return nil, nil, err
+		return s, err
 	}
-	api, agent = fds[apiSocketName], fds[agentSocketName]
+	s = sockets{api: fds[apiSocketName], web: fds[webSocketName], agent: fds[agentSocketName]}
 	delete(fds, apiSocketName)
+	delete(fds, webSocketName)
 	delete(fds, agentSocketName)
-	if api == nil || len(fds) != 0 {
-		for _, l := range []net.Listener{api, agent} {
-			if l != nil {
-				l.Close()
-			}
-		}
+	if s.api == nil || s.web == nil || len(fds) != 0 {
+		s.close()
 		for _, l := range fds {
 			l.Close()
 		}
-		return nil, nil, fmt.Errorf("systemd must pass %s and at most %s, nothing else", apiSocketName, agentSocketName)
+		return sockets{}, fmt.Errorf("systemd must pass %s and %s, at most %s, and nothing else", apiSocketName, webSocketName, agentSocketName)
 	}
-	return api, agent, nil
+	return s, nil
+}
+
+// checkProxyUID refuses a proxy uid that is root, the agent's or the
+// controller's own (self): the proxy faces the internet and must be its
+// own unprivileged user (W2).
+func checkProxyUID(uid, agentUID, self int) error {
+	if uid == -1 {
+		return errors.New("-proxy-uid is required: the reverse proxy's uid (id -u caddy)")
+	}
+	if uid <= 0 || uid > 1<<32-1 {
+		return fmt.Errorf("-proxy-uid %d: must be a uid other than 0", uid)
+	}
+	if uid == agentUID {
+		return fmt.Errorf("-proxy-uid %d is the agent's uid", uid)
+	}
+	if uid == self {
+		return fmt.Errorf("-proxy-uid %d is the controller's own uid", uid)
+	}
+	return nil
 }
 
 // checkAgentUID refuses an agent uid that would give the agent more than
@@ -172,10 +217,12 @@ func adminMember(uid int) (bool, error) {
 //   - 1 if the database, a listener or a server fails;
 //   - 0 after a clean shutdown on SIGTERM or SIGINT.
 //
-// Flags: -db (default defaultDSN), -api-socket (dev mode), and for the
-// agent link -agent-uid and -agent-node, plus -agent-socket in dev mode.
-// The agent link runs only if there is an agent socket, and then both
-// -agent-uid and -agent-node are required.
+// Flags: -db (default defaultDSN), -api-socket and -web-socket (dev
+// mode); for the browser-facing side, -public-url and -proxy-uid (both
+// required) and -hsts-max-age; for the agent link -agent-uid and
+// -agent-node, plus -agent-socket in dev mode. The agent link runs only
+// if there is an agent socket, and then both -agent-uid and -agent-node
+// are required.
 func run(args []string, stderr io.Writer) int {
 	flags := flag.NewFlagSet("controller", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -185,9 +232,13 @@ func run(args []string, stderr io.Writer) int {
 	agentSocket := flags.String("agent-socket", "", "Development agent socket path (localnode builds)")
 	agentUID := flags.Int("agent-uid", -1, "The only uid the agent link accepts")
 	agentNode := flags.String("agent-node", "", "The node the agent speaks for (UUID)")
+	webSocket := flags.String("web-socket", "", "Development web socket path (with -api-socket)")
+	publicURL := flags.String("public-url", "", "The canonical public URL, e.g. https://panel.example.com (required)")
+	proxyUID := flags.Int("proxy-uid", -1, "The only uid web.sock accepts: the reverse proxy's (required)")
+	hstsMaxAge := flags.Int("hsts-max-age", web.DefaultHSTSMaxAge, "HSTS max-age in seconds")
 
 	flags.Usage = func() {
-		fmt.Fprintln(stderr, "usage: controller [-db <dsn>] [-api-socket <path>] [-agent-socket <path>] [-agent-uid <uid> -agent-node <uuid>]")
+		fmt.Fprintln(stderr, "usage: controller -public-url <url> -proxy-uid <uid> [-hsts-max-age <s>] [-db <dsn>] [-api-socket <path> -web-socket <path>] [-agent-socket <path>] [-agent-uid <uid> -agent-node <uuid>]")
 	}
 
 	if err := flags.Parse(args); err != nil {
@@ -214,6 +265,24 @@ func run(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "-agent-socket needs -agent-uid and -agent-node")
 		return 2
 	}
+	public, err := web.ParsePublicURL(*publicURL)
+	if err != nil {
+		fmt.Fprintln(stderr, "-public-url:", err)
+		return 2
+	}
+	if err := checkProxyUID(*proxyUID, *agentUID, os.Getuid()); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if *hstsMaxAge < 1 || *hstsMaxAge > web.MaxHSTSMaxAge {
+		fmt.Fprintf(stderr, "-hsts-max-age %d: must be 1 to %d\n", *hstsMaxAge, web.MaxHSTSMaxAge)
+		return 2
+	}
+	webHandler, err := web.New(web.Config{Public: public, ProxyUID: uint32(*proxyUID), HSTSMaxAge: *hstsMaxAge}, webRoutes()...)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 
 	ctx := context.Background()
 
@@ -224,15 +293,13 @@ func run(args []string, stderr io.Writer) int {
 	}
 	defer db.Close()
 
-	listener, agentListener, err := listeners(*socketPath, *agentSocket, os.Getpid(), os.Getenv)
+	socks, err := listeners(*socketPath, *webSocket, *agentSocket, os.Getpid(), os.Getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "listener:", err)
 		return 1
 	}
-	defer listener.Close()
-	if agentListener != nil {
-		defer agentListener.Close()
-	}
+	defer socks.close()
+	listener, agentListener := socks.api, socks.agent
 	if (agentListener != nil) != agentConfigured {
 		fmt.Fprintln(stderr, "agent link: -agent-uid and -agent-node go with an agent socket, and an agent socket needs them")
 		return 1
@@ -263,6 +330,7 @@ func run(args []string, stderr io.Writer) int {
 	handler := api.New(cfg)
 
 	server := newServer(handler)
+	webServer := webHandler.NewServer(socks.web)
 
 	// I7, F2: whatever was running when the last controller stopped may
 	// or may not have happened. That becomes uncertain before anything
@@ -277,6 +345,7 @@ func run(args []string, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "startup recovery: %d running operation(s) marked uncertain\n", recovered)
 
 	fmt.Fprintf(stderr, "Waystone controller listening on %s\n", listener.Addr())
+	fmt.Fprintf(stderr, "Waystone web listening on %s for %s, proxy uid %d\n", webServer.Addr(), public, *proxyUID)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
@@ -285,6 +354,10 @@ func run(args []string, stderr io.Writer) int {
 	serveErrors := make(chan error, 1)
 	go func() {
 		serveErrors <- server.Serve(listener)
+	}()
+	webErrors := make(chan error, 1)
+	go func() {
+		webErrors <- webServer.Serve()
 	}()
 
 	agentErrors := make(chan error, 1)
@@ -302,6 +375,11 @@ func run(args []string, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "HTTP server:", err)
 			code = 1
 		}
+	case err := <-webErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintln(stderr, "web server:", err)
+			code = 1
+		}
 	case err := <-agentErrors:
 		fmt.Fprintln(stderr, "agent link:", err)
 		code = 1
@@ -309,17 +387,18 @@ func run(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "received signal:", sig)
 	}
 
-	if !shutdown(server, link, shutdownTimeout, stderr) {
+	if !shutdown(server, webServer, link, shutdownTimeout, stderr) {
 		code = 1
 	}
 	return code
 }
 
 // shutdown is R10: end every agent session first (those streams never end
-// on their own), then stop the HTTP server and the agent link together,
-// within one budget. Whatever is still running then is cut off. It
-// reports whether everything finished in time.
-func shutdown(server *http.Server, link *agentlink.Server, budget time.Duration, stderr io.Writer) bool {
+// on their own), then stop the HTTP server, the web server and the agent
+// link together, within one budget. Whatever is still running then is cut
+// off. It reports whether everything finished in time. webServer may be
+// nil (only in tests).
+func shutdown(server *http.Server, webServer *web.Server, link *agentlink.Server, budget time.Duration, stderr io.Writer) bool {
 	if link != nil {
 		link.CancelSessions()
 	}
@@ -327,7 +406,16 @@ func shutdown(server *http.Server, link *agentlink.Server, budget time.Duration,
 	defer cancel()
 
 	var wg sync.WaitGroup
-	var httpErr, linkErr error
+	var httpErr, webErr, linkErr error
+	if webServer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if webErr = webServer.Shutdown(ctx); webErr != nil {
+				_ = webServer.Close()
+			}
+		}()
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -346,8 +434,11 @@ func shutdown(server *http.Server, link *agentlink.Server, budget time.Duration,
 	if httpErr != nil {
 		fmt.Fprintln(stderr, "HTTP shutdown:", httpErr)
 	}
+	if webErr != nil {
+		fmt.Fprintln(stderr, "web shutdown:", webErr)
+	}
 	if linkErr != nil {
 		fmt.Fprintln(stderr, "agent link shutdown:", linkErr)
 	}
-	return httpErr == nil && linkErr == nil
+	return httpErr == nil && webErr == nil && linkErr == nil
 }
