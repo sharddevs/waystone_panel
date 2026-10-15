@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# The supported reverse proxy for Waystone's browser side (v0.1: Caddy
+# only). Copy to /etc/caddy/Caddyfile and replace panel.example.com with
+# your WAYSTONE_PUBLIC_URL's host. The caddy user must be in the
+# waystone-web group, and WAYSTONE_PROXY_UID must be `id -u caddy`.
+#
+# Waystone refuses any request that doesn't carry exactly the forwarding
+# headers set below, so this block is a contract, not a suggestion. Don't
+# add trusted_proxies: Caddy faces browsers directly.
+
+panel.example.com {
+	reverse_proxy unix//run/waystone-controller/web.sock {
+		# Waystone accepts exactly these three, set here explicitly so
+		# nothing a client sends can survive:
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {hostport}
+		# and receives none of these, whatever the client sent:
+		header_up -Forwarded
+		header_up -X-Real-IP
+		header_up -X-Forwarded-Port
+		header_up -X-Forwarded-Server
+		header_up -X-Forwarded-Prefix
+		header_up -X-Original-URL
+		header_up -X-Original-Host
+		header_up -X-Rewrite-URL
+		header_up -X-Client-IP
+		header_up -True-Client-IP
+		header_up -CF-Connecting-IP
+	}
+}
