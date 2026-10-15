@@ -34,6 +34,68 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Whether the game answers its players (D6). Only the profile's own probe
+// decides READY, and only while the process is RUNNING; a process in any
+// other state is NOT_READY.
+type Readiness int32
+
+const (
+	// Refused, like any number this build doesn't know.
+	Readiness_READINESS_UNSPECIFIED Readiness = 0
+	Readiness_READINESS_READY       Readiness = 1
+	Readiness_READINESS_NOT_READY   Readiness = 2
+	// No trustworthy answer: no port configured, or the process state
+	// itself is unknown.
+	Readiness_READINESS_UNKNOWN Readiness = 3
+	// The profile has no probe by design.
+	Readiness_READINESS_NOT_SUPPORTED Readiness = 4
+)
+
+// Enum value maps for Readiness.
+var (
+	Readiness_name = map[int32]string{
+		0: "READINESS_UNSPECIFIED",
+		1: "READINESS_READY",
+		2: "READINESS_NOT_READY",
+		3: "READINESS_UNKNOWN",
+		4: "READINESS_NOT_SUPPORTED",
+	}
+	Readiness_value = map[string]int32{
+		"READINESS_UNSPECIFIED":   0,
+		"READINESS_READY":         1,
+		"READINESS_NOT_READY":     2,
+		"READINESS_UNKNOWN":       3,
+		"READINESS_NOT_SUPPORTED": 4,
+	}
+)
+
+func (x Readiness) Enum() *Readiness {
+	p := new(Readiness)
+	*p = x
+	return p
+}
+
+func (x Readiness) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Readiness) Descriptor() protoreflect.EnumDescriptor {
+	return file_waystone_agent_v1_agent_proto_enumTypes[0].Descriptor()
+}
+
+func (Readiness) Type() protoreflect.EnumType {
+	return &file_waystone_agent_v1_agent_proto_enumTypes[0]
+}
+
+func (x Readiness) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Readiness.Descriptor instead.
+func (Readiness) EnumDescriptor() ([]byte, []int) {
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{0}
+}
+
 type ProcessState int32
 
 const (
@@ -80,11 +142,11 @@ func (x ProcessState) String() string {
 }
 
 func (ProcessState) Descriptor() protoreflect.EnumDescriptor {
-	return file_waystone_agent_v1_agent_proto_enumTypes[0].Descriptor()
+	return file_waystone_agent_v1_agent_proto_enumTypes[1].Descriptor()
 }
 
 func (ProcessState) Type() protoreflect.EnumType {
-	return &file_waystone_agent_v1_agent_proto_enumTypes[0]
+	return &file_waystone_agent_v1_agent_proto_enumTypes[1]
 }
 
 func (x ProcessState) Number() protoreflect.EnumNumber {
@@ -93,7 +155,7 @@ func (x ProcessState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ProcessState.Descriptor instead.
 func (ProcessState) EnumDescriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{0}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{1}
 }
 
 type CommandAction int32
@@ -133,11 +195,11 @@ func (x CommandAction) String() string {
 }
 
 func (CommandAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_waystone_agent_v1_agent_proto_enumTypes[1].Descriptor()
+	return file_waystone_agent_v1_agent_proto_enumTypes[2].Descriptor()
 }
 
 func (CommandAction) Type() protoreflect.EnumType {
-	return &file_waystone_agent_v1_agent_proto_enumTypes[1]
+	return &file_waystone_agent_v1_agent_proto_enumTypes[2]
 }
 
 func (x CommandAction) Number() protoreflect.EnumNumber {
@@ -146,7 +208,7 @@ func (x CommandAction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use CommandAction.Descriptor instead.
 func (CommandAction) EnumDescriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{2}
 }
 
 type OperationPhase int32
@@ -179,11 +241,11 @@ func (x OperationPhase) String() string {
 }
 
 func (OperationPhase) Descriptor() protoreflect.EnumDescriptor {
-	return file_waystone_agent_v1_agent_proto_enumTypes[2].Descriptor()
+	return file_waystone_agent_v1_agent_proto_enumTypes[3].Descriptor()
 }
 
 func (OperationPhase) Type() protoreflect.EnumType {
-	return &file_waystone_agent_v1_agent_proto_enumTypes[2]
+	return &file_waystone_agent_v1_agent_proto_enumTypes[3]
 }
 
 func (x OperationPhase) Number() protoreflect.EnumNumber {
@@ -192,7 +254,7 @@ func (x OperationPhase) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OperationPhase.Descriptor instead.
 func (OperationPhase) EnumDescriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{3}
 }
 
 type ResultOutcome int32
@@ -233,11 +295,11 @@ func (x ResultOutcome) String() string {
 }
 
 func (ResultOutcome) Descriptor() protoreflect.EnumDescriptor {
-	return file_waystone_agent_v1_agent_proto_enumTypes[3].Descriptor()
+	return file_waystone_agent_v1_agent_proto_enumTypes[4].Descriptor()
 }
 
 func (ResultOutcome) Type() protoreflect.EnumType {
-	return &file_waystone_agent_v1_agent_proto_enumTypes[3]
+	return &file_waystone_agent_v1_agent_proto_enumTypes[4]
 }
 
 func (x ResultOutcome) Number() protoreflect.EnumNumber {
@@ -246,7 +308,7 @@ func (x ResultOutcome) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ResultOutcome.Descriptor instead.
 func (ResultOutcome) EnumDescriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{4}
 }
 
 type ResultCode int32
@@ -309,11 +371,11 @@ func (x ResultCode) String() string {
 }
 
 func (ResultCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_waystone_agent_v1_agent_proto_enumTypes[4].Descriptor()
+	return file_waystone_agent_v1_agent_proto_enumTypes[5].Descriptor()
 }
 
 func (ResultCode) Type() protoreflect.EnumType {
-	return &file_waystone_agent_v1_agent_proto_enumTypes[4]
+	return &file_waystone_agent_v1_agent_proto_enumTypes[5]
 }
 
 func (x ResultCode) Number() protoreflect.EnumNumber {
@@ -322,7 +384,7 @@ func (x ResultCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ResultCode.Descriptor instead.
 func (ResultCode) EnumDescriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{5}
 }
 
 // What the agent sends.
@@ -584,8 +646,15 @@ type HelloReply struct {
 	// The servers on this node at the time of the hello.
 	ServerIds             []string `protobuf:"bytes,2,rep,name=server_ids,json=serverIds,proto3" json:"server_ids,omitempty"`
 	ReportIntervalSeconds uint32   `protobuf:"varint,3,opt,name=report_interval_seconds,json=reportIntervalSeconds,proto3" json:"report_interval_seconds,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// The game port to probe for readiness, per server ID (stage 4d-2,
+	// D6). Session setup, not a command, so decision N holds. A server
+	// without an entry has no port configured: the agent doesn't probe it
+	// and reports readiness UNKNOWN, never guessing a default port. Every
+	// key must also be in server_ids. A changed port takes effect at the
+	// next hello.
+	GamePorts     map[string]uint32 `protobuf:"bytes,4,rep,name=game_ports,json=gamePorts,proto3" json:"game_ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HelloReply) Reset() {
@@ -637,6 +706,13 @@ func (x *HelloReply) GetReportIntervalSeconds() uint32 {
 		return x.ReportIntervalSeconds
 	}
 	return 0
+}
+
+func (x *HelloReply) GetGamePorts() map[string]uint32 {
+	if x != nil {
+		return x.GamePorts
+	}
+	return nil
 }
 
 type Report struct {
@@ -713,7 +789,8 @@ type ReportEntry struct {
 	ServerId     string                 `protobuf:"bytes,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
 	ProcessState ProcessState           `protobuf:"varint,2,opt,name=process_state,json=processState,proto3,enum=waystone.agent.v1.ProcessState" json:"process_state,omitempty"`
 	// Diagnostic only, at most 32 bytes. Never drives a decision.
-	NativeState   string `protobuf:"bytes,3,opt,name=native_state,json=nativeState,proto3" json:"native_state,omitempty"`
+	NativeState   string    `protobuf:"bytes,3,opt,name=native_state,json=nativeState,proto3" json:"native_state,omitempty"`
+	Readiness     Readiness `protobuf:"varint,4,opt,name=readiness,proto3,enum=waystone.agent.v1.Readiness" json:"readiness,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -767,6 +844,13 @@ func (x *ReportEntry) GetNativeState() string {
 		return x.NativeState
 	}
 	return ""
+}
+
+func (x *ReportEntry) GetReadiness() Readiness {
+	if x != nil {
+		return x.Readiness
+	}
+	return Readiness_READINESS_UNSPECIFIED
 }
 
 // One operation for the agent to carry out (decision N): only the action
@@ -991,23 +1075,29 @@ const file_waystone_agent_v1_agent_proto_rawDesc = "" +
 	"\x03msg\"E\n" +
 	"\x05Hello\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12#\n" +
-	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\"y\n" +
+	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\"\x84\x02\n" +
 	"\n" +
 	"HelloReply\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x03R\x05epoch\x12\x1d\n" +
 	"\n" +
 	"server_ids\x18\x02 \x03(\tR\tserverIds\x126\n" +
-	"\x17report_interval_seconds\x18\x03 \x01(\rR\x15reportIntervalSeconds\"\xa5\x01\n" +
+	"\x17report_interval_seconds\x18\x03 \x01(\rR\x15reportIntervalSeconds\x12K\n" +
+	"\n" +
+	"game_ports\x18\x04 \x03(\v2,.waystone.agent.v1.HelloReply.GamePortsEntryR\tgamePorts\x1a<\n" +
+	"\x0eGamePortsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xa5\x01\n" +
 	"\x06Report\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x03R\x05epoch\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x03R\x03seq\x129\n" +
 	"\n" +
 	"agent_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tagentTime\x128\n" +
-	"\aentries\x18\x04 \x03(\v2\x1e.waystone.agent.v1.ReportEntryR\aentries\"\x93\x01\n" +
+	"\aentries\x18\x04 \x03(\v2\x1e.waystone.agent.v1.ReportEntryR\aentries\"\xcf\x01\n" +
 	"\vReportEntry\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12D\n" +
 	"\rprocess_state\x18\x02 \x01(\x0e2\x1f.waystone.agent.v1.ProcessStateR\fprocessState\x12!\n" +
-	"\fnative_state\x18\x03 \x01(\tR\vnativeState\"\x99\x01\n" +
+	"\fnative_state\x18\x03 \x01(\tR\vnativeState\x12:\n" +
+	"\treadiness\x18\x04 \x01(\x0e2\x1c.waystone.agent.v1.ReadinessR\treadiness\"\x99\x01\n" +
 	"\aCommand\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x03R\x05epoch\x12!\n" +
 	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12\x1b\n" +
@@ -1021,7 +1111,13 @@ const file_waystone_agent_v1_agent_proto_rawDesc = "" +
 	"\x05epoch\x18\x01 \x01(\x03R\x05epoch\x12!\n" +
 	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12:\n" +
 	"\aoutcome\x18\x03 \x01(\x0e2 .waystone.agent.v1.ResultOutcomeR\aoutcome\x121\n" +
-	"\x04code\x18\x04 \x01(\x0e2\x1d.waystone.agent.v1.ResultCodeR\x04code*\xd0\x01\n" +
+	"\x04code\x18\x04 \x01(\x0e2\x1d.waystone.agent.v1.ResultCodeR\x04code*\x88\x01\n" +
+	"\tReadiness\x12\x19\n" +
+	"\x15READINESS_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fREADINESS_READY\x10\x01\x12\x17\n" +
+	"\x13READINESS_NOT_READY\x10\x02\x12\x15\n" +
+	"\x11READINESS_UNKNOWN\x10\x03\x12\x1b\n" +
+	"\x17READINESS_NOT_SUPPORTED\x10\x04*\xd0\x01\n" +
 	"\fProcessState\x12\x1d\n" +
 	"\x19PROCESS_STATE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15PROCESS_STATE_STOPPED\x10\x01\x12\x1a\n" +
@@ -1069,46 +1165,50 @@ func file_waystone_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_waystone_agent_v1_agent_proto_rawDescData
 }
 
-var file_waystone_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_waystone_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_waystone_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_waystone_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_waystone_agent_v1_agent_proto_goTypes = []any{
-	(ProcessState)(0),             // 0: waystone.agent.v1.ProcessState
-	(CommandAction)(0),            // 1: waystone.agent.v1.CommandAction
-	(OperationPhase)(0),           // 2: waystone.agent.v1.OperationPhase
-	(ResultOutcome)(0),            // 3: waystone.agent.v1.ResultOutcome
-	(ResultCode)(0),               // 4: waystone.agent.v1.ResultCode
-	(*ConnectRequest)(nil),        // 5: waystone.agent.v1.ConnectRequest
-	(*ConnectResponse)(nil),       // 6: waystone.agent.v1.ConnectResponse
-	(*Hello)(nil),                 // 7: waystone.agent.v1.Hello
-	(*HelloReply)(nil),            // 8: waystone.agent.v1.HelloReply
-	(*Report)(nil),                // 9: waystone.agent.v1.Report
-	(*ReportEntry)(nil),           // 10: waystone.agent.v1.ReportEntry
-	(*Command)(nil),               // 11: waystone.agent.v1.Command
-	(*Progress)(nil),              // 12: waystone.agent.v1.Progress
-	(*Result)(nil),                // 13: waystone.agent.v1.Result
-	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
+	(Readiness)(0),                // 0: waystone.agent.v1.Readiness
+	(ProcessState)(0),             // 1: waystone.agent.v1.ProcessState
+	(CommandAction)(0),            // 2: waystone.agent.v1.CommandAction
+	(OperationPhase)(0),           // 3: waystone.agent.v1.OperationPhase
+	(ResultOutcome)(0),            // 4: waystone.agent.v1.ResultOutcome
+	(ResultCode)(0),               // 5: waystone.agent.v1.ResultCode
+	(*ConnectRequest)(nil),        // 6: waystone.agent.v1.ConnectRequest
+	(*ConnectResponse)(nil),       // 7: waystone.agent.v1.ConnectResponse
+	(*Hello)(nil),                 // 8: waystone.agent.v1.Hello
+	(*HelloReply)(nil),            // 9: waystone.agent.v1.HelloReply
+	(*Report)(nil),                // 10: waystone.agent.v1.Report
+	(*ReportEntry)(nil),           // 11: waystone.agent.v1.ReportEntry
+	(*Command)(nil),               // 12: waystone.agent.v1.Command
+	(*Progress)(nil),              // 13: waystone.agent.v1.Progress
+	(*Result)(nil),                // 14: waystone.agent.v1.Result
+	nil,                           // 15: waystone.agent.v1.HelloReply.GamePortsEntry
+	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
 }
 var file_waystone_agent_v1_agent_proto_depIdxs = []int32{
-	7,  // 0: waystone.agent.v1.ConnectRequest.hello:type_name -> waystone.agent.v1.Hello
-	9,  // 1: waystone.agent.v1.ConnectRequest.report:type_name -> waystone.agent.v1.Report
-	12, // 2: waystone.agent.v1.ConnectRequest.progress:type_name -> waystone.agent.v1.Progress
-	13, // 3: waystone.agent.v1.ConnectRequest.result:type_name -> waystone.agent.v1.Result
-	8,  // 4: waystone.agent.v1.ConnectResponse.hello_reply:type_name -> waystone.agent.v1.HelloReply
-	11, // 5: waystone.agent.v1.ConnectResponse.command:type_name -> waystone.agent.v1.Command
-	14, // 6: waystone.agent.v1.Report.agent_time:type_name -> google.protobuf.Timestamp
-	10, // 7: waystone.agent.v1.Report.entries:type_name -> waystone.agent.v1.ReportEntry
-	0,  // 8: waystone.agent.v1.ReportEntry.process_state:type_name -> waystone.agent.v1.ProcessState
-	1,  // 9: waystone.agent.v1.Command.action:type_name -> waystone.agent.v1.CommandAction
-	2,  // 10: waystone.agent.v1.Progress.phase:type_name -> waystone.agent.v1.OperationPhase
-	3,  // 11: waystone.agent.v1.Result.outcome:type_name -> waystone.agent.v1.ResultOutcome
-	4,  // 12: waystone.agent.v1.Result.code:type_name -> waystone.agent.v1.ResultCode
-	5,  // 13: waystone.agent.v1.AgentLinkService.Connect:input_type -> waystone.agent.v1.ConnectRequest
-	6,  // 14: waystone.agent.v1.AgentLinkService.Connect:output_type -> waystone.agent.v1.ConnectResponse
-	14, // [14:15] is the sub-list for method output_type
-	13, // [13:14] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	8,  // 0: waystone.agent.v1.ConnectRequest.hello:type_name -> waystone.agent.v1.Hello
+	10, // 1: waystone.agent.v1.ConnectRequest.report:type_name -> waystone.agent.v1.Report
+	13, // 2: waystone.agent.v1.ConnectRequest.progress:type_name -> waystone.agent.v1.Progress
+	14, // 3: waystone.agent.v1.ConnectRequest.result:type_name -> waystone.agent.v1.Result
+	9,  // 4: waystone.agent.v1.ConnectResponse.hello_reply:type_name -> waystone.agent.v1.HelloReply
+	12, // 5: waystone.agent.v1.ConnectResponse.command:type_name -> waystone.agent.v1.Command
+	15, // 6: waystone.agent.v1.HelloReply.game_ports:type_name -> waystone.agent.v1.HelloReply.GamePortsEntry
+	16, // 7: waystone.agent.v1.Report.agent_time:type_name -> google.protobuf.Timestamp
+	11, // 8: waystone.agent.v1.Report.entries:type_name -> waystone.agent.v1.ReportEntry
+	1,  // 9: waystone.agent.v1.ReportEntry.process_state:type_name -> waystone.agent.v1.ProcessState
+	0,  // 10: waystone.agent.v1.ReportEntry.readiness:type_name -> waystone.agent.v1.Readiness
+	2,  // 11: waystone.agent.v1.Command.action:type_name -> waystone.agent.v1.CommandAction
+	3,  // 12: waystone.agent.v1.Progress.phase:type_name -> waystone.agent.v1.OperationPhase
+	4,  // 13: waystone.agent.v1.Result.outcome:type_name -> waystone.agent.v1.ResultOutcome
+	5,  // 14: waystone.agent.v1.Result.code:type_name -> waystone.agent.v1.ResultCode
+	6,  // 15: waystone.agent.v1.AgentLinkService.Connect:input_type -> waystone.agent.v1.ConnectRequest
+	7,  // 16: waystone.agent.v1.AgentLinkService.Connect:output_type -> waystone.agent.v1.ConnectResponse
+	16, // [16:17] is the sub-list for method output_type
+	15, // [15:16] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_waystone_agent_v1_agent_proto_init() }
@@ -1131,8 +1231,8 @@ func file_waystone_agent_v1_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_waystone_agent_v1_agent_proto_rawDesc), len(file_waystone_agent_v1_agent_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   9,
+			NumEnums:      6,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

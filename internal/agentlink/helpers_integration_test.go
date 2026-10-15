@@ -225,7 +225,7 @@ func hello(t *testing.T, s agentv1.AgentLinkService_ConnectClient) *agentv1.Hell
 }
 
 func entry(id string, state agentv1.ProcessState) *agentv1.ReportEntry {
-	return &agentv1.ReportEntry{ServerId: id, ProcessState: state}
+	return &agentv1.ReportEntry{ServerId: id, ProcessState: state, Readiness: agentv1.Readiness_READINESS_UNKNOWN}
 }
 
 func report(epoch, seq int64, entries ...*agentv1.ReportEntry) *agentv1.ConnectRequest {
@@ -273,11 +273,23 @@ func (e *env) reportCols(t *testing.T) string {
 	var s string
 	if err := e.owner.QueryRow(context.Background(), `
 		SELECT string_agg(concat_ws('|', server_id, process_state, process_since, process_observed_at,
+		       readiness, readiness_since, readiness_observed_at,
 		       report_epoch, report_seq, agent_reported_at), ';' ORDER BY server_id)
 		FROM waystone.servers`).Scan(&s); err != nil {
 		t.Fatal(err)
 	}
 	return s
+}
+
+// readiness is one server's stored readiness.
+func (e *env) readiness(t *testing.T, id string) string {
+	t.Helper()
+	var r string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT readiness FROM waystone.servers WHERE server_id = $1`, id).Scan(&r); err != nil {
+		t.Fatal(err)
+	}
+	return r
 }
 
 // serverState is one server's stored state and seq.

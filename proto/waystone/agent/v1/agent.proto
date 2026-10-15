@@ -55,6 +55,13 @@ message HelloReply {
   // The servers on this node at the time of the hello.
   repeated string server_ids = 2;
   uint32 report_interval_seconds = 3;
+  // The game port to probe for readiness, per server ID (stage 4d-2,
+  // D6). Session setup, not a command, so decision N holds. A server
+  // without an entry has no port configured: the agent doesn't probe it
+  // and reports readiness UNKNOWN, never guessing a default port. Every
+  // key must also be in server_ids. A changed port takes effect at the
+  // next hello.
+  map<string, uint32> game_ports = 4;
 }
 
 message Report {
@@ -70,6 +77,22 @@ message ReportEntry {
   ProcessState process_state = 2;
   // Diagnostic only, at most 32 bytes. Never drives a decision.
   string native_state = 3;
+  Readiness readiness = 4;
+}
+
+// Whether the game answers its players (D6). Only the profile's own probe
+// decides READY, and only while the process is RUNNING; a process in any
+// other state is NOT_READY.
+enum Readiness {
+  // Refused, like any number this build doesn't know.
+  READINESS_UNSPECIFIED = 0;
+  READINESS_READY = 1;
+  READINESS_NOT_READY = 2;
+  // No trustworthy answer: no port configured, or the process state
+  // itself is unknown.
+  READINESS_UNKNOWN = 3;
+  // The profile has no probe by design.
+  READINESS_NOT_SUPPORTED = 4;
 }
 
 enum ProcessState {

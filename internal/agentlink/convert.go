@@ -52,6 +52,14 @@ var processStates = map[agentv1.ProcessState]store.ProcessState{
 	agentv1.ProcessState_PROCESS_STATE_UNKNOWN:  store.ProcessUnknown,
 }
 
+// readinessStates does the same for readiness (D6).
+var readinessStates = map[agentv1.Readiness]store.Readiness{
+	agentv1.Readiness_READINESS_READY:         store.ReadinessReady,
+	agentv1.Readiness_READINESS_NOT_READY:     store.ReadinessNotReady,
+	agentv1.Readiness_READINESS_UNKNOWN:       store.ReadinessUnknown,
+	agentv1.Readiness_READINESS_NOT_SUPPORTED: store.ReadinessNotSupported,
+}
+
 var errBadEntry = errors.New("bad report entry")
 
 // toStoreReport converts a wire report, refusing any state the store has
@@ -71,10 +79,14 @@ func toStoreReport(r *agentv1.Report) (store.Report, error) {
 		if !ok {
 			return store.Report{}, errBadEntry
 		}
+		readiness, ok := readinessStates[e.GetReadiness()]
+		if !ok {
+			return store.Report{}, errBadEntry
+		}
 		if err := store.ValidateNativeState(e.GetNativeState()); err != nil {
 			return store.Report{}, errBadEntry
 		}
-		out.Entries = append(out.Entries, store.ReportEntry{ServerID: e.GetServerId(), State: state})
+		out.Entries = append(out.Entries, store.ReportEntry{ServerID: e.GetServerId(), State: state, Readiness: readiness})
 	}
 	return out, nil
 }

@@ -21,15 +21,18 @@ func TestValidateReport(t *testing.T) {
 	}
 	full := make([]ReportEntry, MaxServersPerNode)
 	for i := range full {
-		full[i] = ReportEntry{ServerID: fmt.Sprintf("0199e1a0-0000-7000-8000-%012x", i), State: ProcessRunning}
+		full[i] = ReportEntry{ServerID: fmt.Sprintf("0199e1a0-0000-7000-8000-%012x", i), State: ProcessRunning, Readiness: ReadinessReady}
 	}
 
 	good := map[string]Report{
 		"zero entries (heartbeat)": ok(),
 		"every state": ok(
-			ReportEntry{s1, ProcessStopped}, ReportEntry{s2, ProcessUnknown},
+			ReportEntry{s1, ProcessStopped, ReadinessUnknown}, ReportEntry{s2, ProcessUnknown, ReadinessUnknown},
 		),
 		"256 entries": ok(full...),
+		"every readiness": ok(
+			ReportEntry{s1, ProcessRunning, ReadinessNotReady}, ReportEntry{s2, ProcessStopped, ReadinessNotSupported},
+		),
 	}
 	for name, r := range good {
 		if err := ValidateReport(r); err != nil {
@@ -42,12 +45,18 @@ func TestValidateReport(t *testing.T) {
 		"seq 0":          {Epoch: 1, Seq: 0, AgentTime: now},
 		"negative seq":   {Epoch: 1, Seq: -1, AgentTime: now},
 		"no agent time":  {Epoch: 1, Seq: 1},
-		"257 entries":    ok(append(full, ReportEntry{s1, ProcessRunning})...),
-		"duplicate":      ok(ReportEntry{s1, ProcessRunning}, ReportEntry{s1, ProcessStopped}),
-		"bad uuid":       ok(ReportEntry{"not-a-uuid", ProcessRunning}),
-		"uppercase uuid": ok(ReportEntry{strings.ToUpper(s1), ProcessRunning}),
-		"empty state":    ok(ReportEntry{s1, ""}),
-		"unknown state":  ok(ReportEntry{s1, "exploded"}),
+		"257 entries":    ok(append(full, ReportEntry{s1, ProcessRunning, ReadinessUnknown})...),
+		"duplicate":      ok(ReportEntry{s1, ProcessRunning, ReadinessUnknown}, ReportEntry{s1, ProcessStopped, ReadinessUnknown}),
+		"bad uuid":       ok(ReportEntry{"not-a-uuid", ProcessRunning, ReadinessUnknown}),
+		"uppercase uuid": ok(ReportEntry{strings.ToUpper(s1), ProcessRunning, ReadinessUnknown}),
+		"empty state":    ok(ReportEntry{s1, "", ReadinessUnknown}),
+		"unknown state":  ok(ReportEntry{s1, "exploded", ReadinessUnknown}),
+		// D6: readiness is required, known, and ready only while running.
+		"empty readiness":      ok(ReportEntry{s1, ProcessRunning, ""}),
+		"unknown readiness":    ok(ReportEntry{s1, ProcessRunning, "online"}),
+		"ready while stopped":  ok(ReportEntry{s1, ProcessStopped, ReadinessReady}),
+		"ready while unknown":  ok(ReportEntry{s1, ProcessUnknown, ReadinessReady}),
+		"ready while starting": ok(ReportEntry{s1, ProcessStarting, ReadinessReady}),
 	}
 	for name, r := range bad {
 		if err := ValidateReport(r); !errors.Is(err, ErrInvalidInput) {
@@ -65,6 +74,26 @@ func TestValidateNativeState(t *testing.T) {
 	for _, s := range []string{strings.Repeat("a", 33), strings.Repeat("é", 17), "a\nb", "a\x00", "\xff", "tab\there"} {
 		if err := ValidateNativeState(s); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("ValidateNativeState(%q) = %v, want ErrInvalidInput", s, err)
+		}
+	}
+}
+
+// D6: the port comes from config->>'port' and is a decimal 1..65535, or
+// there is none.
+func TestGamePort(t *testing.T) {
+	str := func(s string) *string { return &s }
+	good := map[string]uint32{"25565": 25565, "1": 1, "65535": 65535, "025565": 25565}
+	for in, want := range good {
+		if got, ok := GamePort(str(in)); !ok || got != want {
+			t.Errorf("GamePort(%q) = %d, %v; want %d", in, got, ok, want)
+		}
+	}
+	if _, ok := GamePort(nil); ok {
+		t.Error("GamePort(nil) has a port")
+	}
+	for _, in := range []string{"", "0", "65536", "-1", "+25565", "25565.0", "2.5e4", " 25565", "25565 ", "port", "0x63dd"} {
+		if got, ok := GamePort(str(in)); ok {
+			t.Errorf("GamePort(%q) = %d, want none", in, got)
 		}
 	}
 }

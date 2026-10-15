@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -62,10 +63,31 @@ func ValidProcessState(s ProcessState) bool {
 	return false
 }
 
+// Readiness is whether the game answers its players (D6). The values match
+// the CHECK on servers.readiness.
+type Readiness string
+
+const (
+	ReadinessReady        Readiness = "ready"
+	ReadinessNotReady     Readiness = "not_ready"
+	ReadinessUnknown      Readiness = "unknown"
+	ReadinessNotSupported Readiness = "not_supported"
+)
+
+// ValidReadiness reports whether r is one of the values above.
+func ValidReadiness(r Readiness) bool {
+	switch r {
+	case ReadinessReady, ReadinessNotReady, ReadinessUnknown, ReadinessNotSupported:
+		return true
+	}
+	return false
+}
+
 // ReportEntry is one server in a report.
 type ReportEntry struct {
-	ServerID string
-	State    ProcessState
+	ServerID  string
+	State     ProcessState
+	Readiness Readiness
 }
 
 // Report is one batch from an agent: its session epoch, a sequence number
@@ -94,8 +116,9 @@ func ValidateNativeState(s string) error {
 
 // ValidateReport checks a report's shape before it reaches the database:
 // epoch and seq at least 1, an agent time, at most MaxServersPerNode
-// entries, each with a canonical UUID and a known state, and no server
-// twice. Anything else is ErrInvalidInput (R5: the whole report goes).
+// entries, each with a canonical UUID, a known state and readiness, ready
+// only while running (D6), and no server twice. Anything else is
+// ErrInvalidInput (R5: the whole report goes).
 func ValidateReport(r Report) error {
 	if r.Epoch < 1 || r.Seq < 1 || r.AgentTime.IsZero() {
 		return fmt.Errorf("%w: epoch, seq and agent time are required", ErrInvalidInput)
@@ -110,6 +133,12 @@ func ValidateReport(r Report) error {
 		}
 		if !ValidProcessState(e.State) {
 			return fmt.Errorf("%w: unknown process state", ErrInvalidInput)
+		}
+		if !ValidReadiness(e.Readiness) {
+			return fmt.Errorf("%w: unknown readiness", ErrInvalidInput)
+		}
+		if e.Readiness == ReadinessReady && e.State != ProcessRunning {
+			return fmt.Errorf("%w: ready without a running process", ErrInvalidInput)
 		}
 		if seen[e.ServerID] {
 			return fmt.Errorf("%w: server %s listed twice", ErrInvalidInput, e.ServerID)
@@ -128,9 +157,10 @@ func (t *Tx) requireNode() error {
 }
 
 // NodeHello starts a new agent session for the transaction's node and
-// returns the new epoch and the node's server IDs (sorted). In order:
+// returns the new epoch, the node's server IDs (sorted), and the game port
+// of each server that has one (see GamePort). In order:
 //
-//  1. Read the node's server IDs. More than MaxServersPerNode is
+//  1. Read the node's servers. More than MaxServersPerNode is
 //     ErrTooManyServers, before anything is written (v2.1 point 3).
 //  2. Raise session_epoch by one and set last_seen_at. The row lock this
 //     takes serializes the hello against reports, which lock the same row
@@ -140,35 +170,40 @@ func (t *Tx) requireNode() error {
 //     finished it.
 //
 // The caller's InTenantTx rolls everything back if any step fails.
-func (t *Tx) NodeHello(ctx context.Context) (epoch int64, serverIDs []string, err error) {
+func (t *Tx) NodeHello(ctx context.Context) (epoch int64, serverIDs []string, ports map[string]uint32, err error) {
 	if err := t.requireNode(); err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	nodeID := t.actor.ID
 
 	rows, err := t.tx.Query(ctx, `
-		SELECT server_id::text FROM waystone.servers
+		SELECT server_id::text, config->>'port' FROM waystone.servers
 		WHERE node_id = $1
 		ORDER BY server_id
 		LIMIT $2`, nodeID, MaxServersPerNode+1)
 	if err != nil {
-		return 0, nil, fmt.Errorf("list node servers: %w", err)
+		return 0, nil, nil, fmt.Errorf("list node servers: %w", err)
 	}
 	serverIDs = []string{}
+	ports = map[string]uint32{}
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
+		var port *string
+		if err := rows.Scan(&id, &port); err != nil {
 			rows.Close()
-			return 0, nil, fmt.Errorf("scan node server: %w", err)
+			return 0, nil, nil, fmt.Errorf("scan node server: %w", err)
 		}
 		serverIDs = append(serverIDs, id)
+		if p, ok := GamePort(port); ok {
+			ports[id] = p
+		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return 0, nil, fmt.Errorf("list node servers: %w", err)
+		return 0, nil, nil, fmt.Errorf("list node servers: %w", err)
 	}
 	if len(serverIDs) > MaxServersPerNode {
-		return 0, nil, ErrTooManyServers
+		return 0, nil, nil, ErrTooManyServers
 	}
 
 	err = t.tx.QueryRow(ctx, `
@@ -177,7 +212,7 @@ func (t *Tx) NodeHello(ctx context.Context) (epoch int64, serverIDs []string, er
 		WHERE node_id = $1
 		RETURNING session_epoch`, nodeID).Scan(&epoch)
 	if err != nil {
-		return 0, nil, fmt.Errorf("bump session epoch: %w", err)
+		return 0, nil, nil, fmt.Errorf("bump session epoch: %w", err)
 	}
 
 	_, err = t.tx.Exec(ctx, `
@@ -187,10 +222,26 @@ func (t *Tx) NodeHello(ctx context.Context) (epoch int64, serverIDs []string, er
 		    error_summary = 'The agent session was replaced while this operation was running.'
 		WHERE node_id = $1 AND state = 'running'`, nodeID, t.Now())
 	if err != nil {
-		return 0, nil, fmt.Errorf("mark running operations uncertain: %w", err)
+		return 0, nil, nil, fmt.Errorf("mark running operations uncertain: %w", err)
 	}
 
-	return epoch, serverIDs, nil
+	return epoch, serverIDs, ports, nil
+}
+
+// GamePort reads a server's game port from config->>'port' (D6): a
+// decimal integer from 1 to 65535. Anything else, including a missing
+// key, means no port, so the agent doesn't probe and reports unknown; it
+// never falls back to a default. The dev seed sets the key until the
+// stage 6 install writes it.
+func GamePort(s *string) (uint32, bool) {
+	if s == nil {
+		return 0, false
+	}
+	p, err := strconv.ParseUint(*s, 10, 16)
+	if err != nil || p == 0 {
+		return 0, false
+	}
+	return uint32(p), true
 }
 
 // AcceptReport stores a report for the transaction's node:
@@ -201,8 +252,9 @@ func (t *Tx) NodeHello(ctx context.Context) (epoch int64, serverIDs []string, er
 //  2. One conditional UPDATE per entry. It only matches a server on this
 //     node whose stored (epoch, seq) is older (C2), so an entry for
 //     another node's server (F9), a server that moved away, or a stale
-//     seq matches nothing and counts as rejected. The observation time is
-//     the database's now(), the controller's receipt time.
+//     seq matches nothing and counts as rejected. Process state and
+//     readiness are written together; the observation time is the
+//     database's now(), the controller's receipt time.
 //  3. Set last_seen_at (R11), even if every entry was rejected.
 //
 // The report must already have passed ValidateReport; it is checked again
@@ -234,12 +286,15 @@ func (t *Tx) AcceptReport(ctx context.Context, r Report) (accepted, rejected int
 			SET process_state = $3,
 			    process_since = CASE WHEN process_state IS DISTINCT FROM $3 THEN now() ELSE process_since END,
 			    process_observed_at = now(),
+			    readiness = $7,
+			    readiness_since = CASE WHEN readiness IS DISTINCT FROM $7 THEN now() ELSE readiness_since END,
+			    readiness_observed_at = now(),
 			    report_epoch = $4,
 			    report_seq = $5,
 			    agent_reported_at = $6
 			WHERE server_id = $1 AND node_id = $2
 			  AND (report_epoch, report_seq) < ($4::bigint, $5::bigint)`,
-			e.ServerID, nodeID, string(e.State), r.Epoch, r.Seq, r.AgentTime)
+			e.ServerID, nodeID, string(e.State), r.Epoch, r.Seq, r.AgentTime, string(e.Readiness))
 		if err != nil {
 			return 0, 0, fmt.Errorf("store report entry: %w", err)
 		}

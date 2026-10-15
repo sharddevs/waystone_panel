@@ -708,6 +708,7 @@ func runRealAgent(t *testing.T, path string, r agent.Runner, h agent.Helper) con
 		Version:          "test",
 		Helper:           h,
 		Runner:           r,
+		Prober:           fakeProber{},
 		Log:              log.New(io.Discard, "", 0),
 		Sleep: func(ctx context.Context, _ time.Duration) error {
 			// Reconnect quickly, but not in a tight loop.

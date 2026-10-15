@@ -54,7 +54,7 @@ func (e *env) hello(actor Actor) (int64, []string, error) {
 	var ids []string
 	err := e.store.InTenantTx(context.Background(), actor, func(ctx context.Context, tx *Tx) error {
 		var err error
-		epoch, ids, err = tx.NodeHello(ctx)
+		epoch, ids, _, err = tx.NodeHello(ctx)
 		return err
 	})
 	return epoch, ids, err
@@ -187,7 +187,9 @@ func TestMigration00002(t *testing.T) {
 	want := []string{
 		"nodes.last_seen_at", "nodes.session_epoch",
 		"servers.agent_reported_at", "servers.desired_state", "servers.process_observed_at",
-		"servers.process_since", "servers.process_state", "servers.report_epoch", "servers.report_seq",
+		"servers.process_since", "servers.process_state",
+		"servers.readiness", "servers.readiness_observed_at", "servers.readiness_since", // 00005
+		"servers.report_epoch", "servers.report_seq",
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("UPDATE grants = %v, want %v", got, want)
@@ -333,7 +335,7 @@ func TestAcceptReportOrdering(t *testing.T) {
 	at := agentTime(t)
 
 	acc, rej, err := e.report(nodeActA, Report{Epoch: epoch, Seq: 5, AgentTime: at, Entries: []ReportEntry{
-		{ServerID: serverA1, State: ProcessRunning}, {ServerID: serverA2, State: ProcessStopped},
+		{ServerID: serverA1, State: ProcessRunning, Readiness: ReadinessUnknown}, {ServerID: serverA2, State: ProcessStopped, Readiness: ReadinessUnknown},
 	}})
 	if err != nil || acc != 2 || rej != 0 {
 		t.Fatalf("seq 5 = %d/%d, %v", acc, rej, err)
@@ -348,14 +350,14 @@ func TestAcceptReportOrdering(t *testing.T) {
 
 	// Older seq: nothing changes.
 	acc, rej, err = e.report(nodeActA, Report{Epoch: epoch, Seq: 4, AgentTime: at, Entries: []ReportEntry{
-		{ServerID: serverA1, State: ProcessStopped},
+		{ServerID: serverA1, State: ProcessStopped, Readiness: ReadinessUnknown},
 	}})
 	if err != nil || acc != 0 || rej != 1 {
 		t.Errorf("seq 4 = %d/%d, %v; want 0/1", acc, rej, err)
 	}
 	// Same seq again: refused too.
 	if acc, rej, err = e.report(nodeActA, Report{Epoch: epoch, Seq: 5, AgentTime: at, Entries: []ReportEntry{
-		{ServerID: serverA1, State: ProcessStopped},
+		{ServerID: serverA1, State: ProcessStopped, Readiness: ReadinessUnknown},
 	}}); err != nil || acc != 0 || rej != 1 {
 		t.Errorf("repeated seq 5 = %d/%d, %v; want 0/1", acc, rej, err)
 	}
@@ -367,7 +369,7 @@ func TestAcceptReportOrdering(t *testing.T) {
 	// clock a year ahead changes nothing about ordering or receipt time.
 	future := at.AddDate(1, 0, 0)
 	if acc, rej, err = e.report(nodeActA, Report{Epoch: epoch, Seq: 7, AgentTime: future, Entries: []ReportEntry{
-		{ServerID: serverA1, State: ProcessRunning},
+		{ServerID: serverA1, State: ProcessRunning, Readiness: ReadinessUnknown},
 	}}); err != nil || acc != 1 || rej != 0 {
 		t.Fatalf("seq 7 = %d/%d, %v", acc, rej, err)
 	}
@@ -383,7 +385,7 @@ func TestAcceptReportOrdering(t *testing.T) {
 
 	// A state change moves since.
 	if _, _, err := e.report(nodeActA, Report{Epoch: epoch, Seq: 8, AgentTime: at, Entries: []ReportEntry{
-		{ServerID: serverA1, State: ProcessStopping},
+		{ServerID: serverA1, State: ProcessStopping, Readiness: ReadinessUnknown},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +407,7 @@ func TestAcceptReportSuperseded(t *testing.T) {
 	}
 	before := e.node(t, nodeA)
 	_, _, err = e.report(nodeActA, Report{Epoch: old, Seq: 1, AgentTime: agentTime(t), Entries: []ReportEntry{
-		{ServerID: serverA1, State: ProcessRunning},
+		{ServerID: serverA1, State: ProcessRunning, Readiness: ReadinessUnknown},
 	}})
 	if !errors.Is(err, ErrSessionSuperseded) {
 		t.Fatalf("old-epoch report: %v, want ErrSessionSuperseded", err)
@@ -433,10 +435,10 @@ func TestAcceptReportOtherNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	acc, rej, err := e.report(nodeActA, Report{Epoch: epoch, Seq: 1, AgentTime: agentTime(t), Entries: []ReportEntry{
-		{ServerID: serverA1, State: ProcessRunning},
-		{ServerID: serverOnA2, State: ProcessRunning},    // same tenant, another node
-		{ServerID: serverB1, State: ProcessRunning},      // another tenant
-		{ServerID: missingServer, State: ProcessRunning}, // nobody's
+		{ServerID: serverA1, State: ProcessRunning, Readiness: ReadinessUnknown},
+		{ServerID: serverOnA2, State: ProcessRunning, Readiness: ReadinessUnknown},    // same tenant, another node
+		{ServerID: serverB1, State: ProcessRunning, Readiness: ReadinessUnknown},      // another tenant
+		{ServerID: missingServer, State: ProcessRunning, Readiness: ReadinessUnknown}, // nobody's
 	}})
 	if err != nil || acc != 1 || rej != 3 {
 		t.Fatalf("mixed report = %d/%d, %v; want 1/3", acc, rej, err)
@@ -462,7 +464,7 @@ func TestAcceptReportOtherNodes(t *testing.T) {
 	}
 	// A malformed report never reaches the database.
 	if _, _, err := e.report(nodeActA, Report{Epoch: epoch, Seq: 3, AgentTime: agentTime(t), Entries: []ReportEntry{
-		{ServerID: serverA1, State: ProcessRunning}, {ServerID: serverA1, State: ProcessStopped},
+		{ServerID: serverA1, State: ProcessRunning, Readiness: ReadinessUnknown}, {ServerID: serverA1, State: ProcessStopped, Readiness: ReadinessUnknown},
 	}}); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("duplicate entries: %v, want ErrInvalidInput", err)
 	}
@@ -560,7 +562,8 @@ func TestReportBeforeHelloSerializes(t *testing.T) {
 
 	for i, id := range []string{serverA1, serverA2} {
 		if _, err := tx.Exec(ctx, `UPDATE waystone.servers SET process_state = 'running', process_since = now(),
-			process_observed_at = now(), report_epoch = $2, report_seq = 1, agent_reported_at = now()
+			process_observed_at = now(), readiness = 'not_ready', readiness_since = now(), readiness_observed_at = now(),
+			report_epoch = $2, report_seq = 1, agent_reported_at = now()
 			WHERE server_id = $1`, id, epoch); err != nil {
 			t.Fatalf("entry %d: %v", i, err)
 		}
@@ -597,7 +600,7 @@ func TestHelloBeforeReportSerializes(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, _, err := e.report(nodeActA, Report{Epoch: epoch, Seq: 1, AgentTime: agentTime(t), Entries: []ReportEntry{
-			{ServerID: serverA1, State: ProcessRunning}, {ServerID: serverA2, State: ProcessRunning},
+			{ServerID: serverA1, State: ProcessRunning, Readiness: ReadinessUnknown}, {ServerID: serverA2, State: ProcessRunning, Readiness: ReadinessUnknown},
 		}})
 		done <- err
 	}()
@@ -681,7 +684,7 @@ func TestServersReportGuard(t *testing.T) {
 	// Committed starting point: a1 stopped at (epoch, 2). guardExec rolls
 	// every statement back, so each case below runs against this row.
 	if _, _, err := e.report(nodeActA, Report{Epoch: epoch, Seq: 2, AgentTime: agentTime(t), Entries: []ReportEntry{
-		{ServerID: serverA1, State: ProcessStopped},
+		{ServerID: serverA1, State: ProcessStopped, Readiness: ReadinessUnknown},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -690,10 +693,17 @@ func TestServersReportGuard(t *testing.T) {
 	// columns so each case breaks exactly one rule (Postgres refuses the
 	// same column twice in one SET).
 	set := func(state string, seq int64, over map[string]string) string {
+		readiness := "'not_ready'"
+		if r, ok := over["readiness"]; ok {
+			readiness = r
+		}
 		cols := []struct{ name, value string }{
 			{"process_state", fmt.Sprintf("'%s'", state)},
 			{"process_since", fmt.Sprintf("CASE WHEN process_state IS DISTINCT FROM '%s' THEN now() ELSE process_since END", state)},
 			{"process_observed_at", "now()"},
+			{"readiness", readiness},
+			{"readiness_since", fmt.Sprintf("CASE WHEN readiness IS DISTINCT FROM %s THEN now() ELSE readiness_since END", readiness)},
+			{"readiness_observed_at", "now()"},
 			{"report_epoch", fmt.Sprint(epoch)},
 			{"report_seq", fmt.Sprint(seq)},
 			{"agent_reported_at", "now()"},
@@ -737,6 +747,20 @@ func TestServersReportGuard(t *testing.T) {
 	wantRaised(t, "old observed", upd("node", nodeA, set("running", 9, map[string]string{"process_observed_at": "now() - interval '1 second'"}), serverA1), "process_observed_at")
 	// Rule 2.5: since without a state change, and a state change without since.
 	wantRaised(t, "since moved", upd("node", nodeA, set("stopped", 9, map[string]string{"process_since": "now() - interval '1 hour'"}), serverA1), "without a state change")
+	// Rules 2.7 to 2.9 (00005): readiness moves with the report, observed
+	// now(), since only on a change, and ready only while running.
+	if err := upd("node", nodeA, set("running", 9, map[string]string{"readiness": "'ready'"}), serverA1); err != nil {
+		t.Errorf("running and ready: %v", err)
+	}
+	wantRaised(t, "readiness old observed", upd("node", nodeA, set("running", 9, map[string]string{"readiness_observed_at": "now() - interval '1 second'"}), serverA1), "readiness_observed_at")
+	wantRaised(t, "readiness observed NULL", upd("node", nodeA, set("running", 9, map[string]string{"readiness_observed_at": "NULL"}), serverA1), "readiness_observed_at")
+	wantRaised(t, "readiness since moved", upd("node", nodeA, set("running", 9, map[string]string{"readiness": "'unknown'", "readiness_since": "now() - interval '1 hour'"}), serverA1), "without a readiness change")
+	wantRaised(t, "readiness change, since kept", upd("node", nodeA, set("running", 9, map[string]string{"readiness_since": "readiness_since"}), serverA1), "readiness_since must be now()")
+	for _, state := range []string{"stopped", "starting", "stopping", "failed", "unknown"} {
+		wantRaised(t, "ready while "+state, upd("node", nodeA, set(state, 9, map[string]string{"readiness": "'ready'"}), serverA1), "only be ready while")
+	}
+	wantRaised(t, "admin readiness", upd("local_user", "1000", "readiness = 'ready', readiness_since = now(), readiness_observed_at = now()", serverA1), "only the server's node")
+
 	// Rule 2.6 and the other partial updates (v2.1 point 2).
 	partial := map[string]struct{ set, msg string }{
 		"only process_state":         {"process_state = 'running'", ""},
@@ -744,6 +768,8 @@ func TestServersReportGuard(t *testing.T) {
 		"epoch and seq, no observed": {fmt.Sprintf("report_epoch = %d, report_seq = 51", epoch), "process_observed_at"},
 		"only process_observed_at":   {"process_observed_at = now()", "move forward"},
 		"only agent_reported_at":     {"agent_reported_at = now()", "move forward"},
+		"only readiness":             {"readiness = 'not_ready'", "move forward"},
+		"report without readiness":   {fmt.Sprintf("process_state = 'stopped', process_observed_at = now(), report_epoch = %d, report_seq = 55, agent_reported_at = now()", epoch), "readiness_observed_at"},
 		"agent_reported_at NULL":     {set("stopped", 52, map[string]string{"agent_reported_at": "NULL"}), "agent_reported_at"},
 		"observed not now":           {set("stopped", 53, map[string]string{"process_observed_at": "'2020-01-01'"}), "process_observed_at"},
 		"state change, since kept":   {set("running", 54, map[string]string{"process_since": "process_since"}), "process_since"},

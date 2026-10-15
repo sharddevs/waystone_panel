@@ -27,7 +27,7 @@ func withUnknown(m protoreflect.ProtoMessage) {
 func reportMsg() *agentv1.ConnectRequest {
 	return &agentv1.ConnectRequest{Msg: &agentv1.ConnectRequest_Report{Report: &agentv1.Report{
 		Epoch: 1, Seq: 1, AgentTime: timestamppb.New(time.Now()),
-		Entries: []*agentv1.ReportEntry{{ServerId: testServer, ProcessState: agentv1.ProcessState_PROCESS_STATE_RUNNING}},
+		Entries: []*agentv1.ReportEntry{{ServerId: testServer, ProcessState: agentv1.ProcessState_PROCESS_STATE_RUNNING, Readiness: agentv1.Readiness_READINESS_READY}},
 	}}}
 }
 
@@ -74,9 +74,22 @@ func TestToStoreReport(t *testing.T) {
 	if len(processStates) != 6 {
 		t.Errorf("%d mapped states, want 6", len(processStates))
 	}
+	r = reportMsg().GetReport()
+	for wire, want := range readinessStates {
+		r.Entries[0].Readiness = wire
+		got, err := toStoreReport(r)
+		if err != nil || got.Entries[0].Readiness != want {
+			t.Errorf("%v: %+v, %v", wire, got, err)
+		}
+	}
+	if len(readinessStates) != 4 {
+		t.Errorf("%d mapped readiness values, want 4", len(readinessStates))
+	}
 	bad := map[string]func(*agentv1.Report){
 		"unspecified":       func(r *agentv1.Report) { r.Entries[0].ProcessState = agentv1.ProcessState_PROCESS_STATE_UNSPECIFIED },
 		"unknown enum":      func(r *agentv1.Report) { r.Entries[0].ProcessState = 99 },
+		"readiness unset":   func(r *agentv1.Report) { r.Entries[0].Readiness = agentv1.Readiness_READINESS_UNSPECIFIED },
+		"readiness 99":      func(r *agentv1.Report) { r.Entries[0].Readiness = 99 },
 		"native 33 bytes":   func(r *agentv1.Report) { r.Entries[0].NativeState = strings.Repeat("x", 33) },
 		"native control":    func(r *agentv1.Report) { r.Entries[0].NativeState = "a\nb" },
 		"native bad utf-8":  func(r *agentv1.Report) { r.Entries[0].NativeState = "\xff" },

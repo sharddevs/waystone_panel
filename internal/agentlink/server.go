@@ -285,9 +285,10 @@ func (s *Server) Connect(stream agentv1.AgentLinkService_ConnectServer) error {
 
 	var epoch int64
 	var serverIDs []string
+	var ports map[string]uint32
 	err := s.store.InTenantTx(ctx, s.actor, func(ctx context.Context, tx *store.Tx) error {
 		var err error
-		epoch, serverIDs, err = tx.NodeHello(ctx)
+		epoch, serverIDs, ports, err = tx.NodeHello(ctx)
 		return err
 	})
 	if errors.Is(err, store.ErrTooManyServers) {
@@ -315,6 +316,7 @@ func (s *Server) Connect(stream agentv1.AgentLinkService_ConnectServer) error {
 		Epoch:                 epoch,
 		ServerIds:             serverIDs,
 		ReportIntervalSeconds: uint32(s.reportInterval / time.Second),
+		GamePorts:             ports,
 	}}})
 	if err != nil {
 		return err

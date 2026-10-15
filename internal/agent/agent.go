@@ -4,7 +4,8 @@
 // dials the controller, says hello, and every report interval asks the
 // helper for each server's STATUS and reports it. Since stage 4c it also
 // carries out the controller's start, stop and restart commands
-// (commands.go).
+// (commands.go). Since stage 4d-2 each report also carries readiness, from
+// the profile's probe (readiness.go).
 package agent
 
 import (
@@ -58,6 +59,8 @@ type Config struct {
 	Helper  Helper
 	// Runner carries out commands (4c): lifecycle.HelperRuntime.
 	Runner Runner
+	// Prober is the readiness probe (4d-2): minecraft.StatusPing.
+	Prober Prober
 
 	// For tests; zero values mean the real thing.
 	Dial         func(ctx context.Context) (net.Conn, error)      // a Unix dial of ControllerSocket
@@ -70,6 +73,7 @@ type Config struct {
 	SweepTimeout time.Duration                                    // 10 s per sweep
 	// CommandCallTimeout is each command's helper call deadline, 100 s.
 	CommandCallTimeout time.Duration
+	ProbeTimeout       time.Duration // 3 s per readiness probe
 }
 
 // Agent runs the connect loop.
@@ -79,6 +83,7 @@ type Agent struct {
 	version       string
 	helper        Helper
 	runner        Runner
+	prober        Prober
 	dial          func(ctx context.Context) (net.Conn, error)
 	uidOf         func(net.Conn) (uint32, error)
 	log           *log.Logger
@@ -89,6 +94,7 @@ type Agent struct {
 	sweepTimeout  time.Duration
 
 	commandCallTimeout time.Duration
+	probeTimeout       time.Duration
 }
 
 // New checks the configuration and builds the agent.
@@ -102,6 +108,9 @@ func New(cfg Config) (*Agent, error) {
 	if cfg.Runner == nil {
 		return nil, errors.New("agent: no runner")
 	}
+	if cfg.Prober == nil {
+		return nil, errors.New("agent: no prober")
+	}
 	if cfg.Dial == nil && cfg.ControllerSocket == "" {
 		return nil, errors.New("agent: no controller socket")
 	}
@@ -111,6 +120,7 @@ func New(cfg Config) (*Agent, error) {
 		version:       cfg.Version,
 		helper:        cfg.Helper,
 		runner:        cfg.Runner,
+		prober:        cfg.Prober,
 		dial:          cfg.Dial,
 		uidOf:         cfg.UIDOf,
 		log:           cfg.Log,
@@ -120,6 +130,7 @@ func New(cfg Config) (*Agent, error) {
 		sweepTimeout:  cfg.SweepTimeout,
 
 		commandCallTimeout: cfg.CommandCallTimeout,
+		probeTimeout:       cfg.ProbeTimeout,
 	}
 	if a.dial == nil {
 		path := cfg.ControllerSocket
@@ -152,6 +163,9 @@ func New(cfg Config) (*Agent, error) {
 	}
 	if a.commandCallTimeout == 0 {
 		a.commandCallTimeout = commandCallTimeout
+	}
+	if a.probeTimeout == 0 {
+		a.probeTimeout = probeTimeout
 	}
 	return a, nil
 }
@@ -222,7 +236,8 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 	}
 	interval := time.Duration(reply.GetReportIntervalSeconds()) * time.Second
 	serverIDs := reply.GetServerIds()
-	a.logf("agent=connected epoch=%d servers=%d interval=%s", reply.GetEpoch(), len(serverIDs), interval)
+	ports := reply.GetGamePorts()
+	a.logf("agent=connected epoch=%d servers=%d ports=%d interval=%s", reply.GetEpoch(), len(serverIDs), len(ports), interval)
 
 	// One goroutine sends, because a gRPC stream can't send from several
 	// at once (§5 step 6): reports, progress and results all go through
@@ -295,6 +310,7 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 			return err
 		}
 		entries := a.sweep(ctx, sweepID, serverIDs)
+		a.readiness(ctx, entries, ports)
 		a.logUnknown(sweepID, entries)
 		deliver(&agentv1.ConnectRequest{Msg: &agentv1.ConnectRequest_Report{Report: &agentv1.Report{
 			Epoch:     reply.GetEpoch(),
@@ -403,6 +419,13 @@ func checkHelloReply(m *agentv1.ConnectResponse) (*agentv1.HelloReply, error) {
 			return nil, errors.New("hello reply has a bad or repeated server ID")
 		}
 		seen[id] = true
+	}
+	// A port for a server the node doesn't have, or one that can't be a
+	// port, is a controller bug.
+	for id, port := range reply.GetGamePorts() {
+		if !seen[id] || port == 0 || port > 65535 {
+			return nil, errors.New("hello reply has a bad game port")
+		}
 	}
 	return reply, nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/helper"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/lifecycle"
+	"github.com/sharddevs/waystone_panel/internal/profile/minecraft"
 )
 
 const version = "0.1.0-alpha"
@@ -85,6 +86,7 @@ func run(args []string, uid int, stderr io.Writer) int {
 		Version:          version,
 		Helper:           helper.Client{SocketPath: cfg.helper},
 		Runner:           lifecycle.HelperRuntime{Client: helper.Client{SocketPath: cfg.helper}},
+		Prober:           minecraft.StatusPing{},
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "waystone-agent:", err)

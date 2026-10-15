@@ -383,6 +383,7 @@ func runAgainst(t *testing.T, f *fakeController, r Runner) error {
 		NodeID:           node,
 		Helper:           &fakeHelper{answer: func(context.Context, string) (*helperv1.Response, error) { return running(""), nil }},
 		Runner:           r,
+		Prober:           fakeProber{},
 		UIDOf:            func(net.Conn) (uint32, error) { return 0, nil },
 		Log:              log.New(io.Discard, "", 0),
 	})

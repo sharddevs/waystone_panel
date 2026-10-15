@@ -22,8 +22,11 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-PrivateNetwork=yes
-RestrictAddressFamilies=AF_UNIX
+# Loopback only (4d-2): the readiness probe pings the game on 127.0.0.1.
+# The kernel filter drops every other address.
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

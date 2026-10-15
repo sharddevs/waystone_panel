@@ -79,6 +79,28 @@ func TestHelloAndReports(t *testing.T) {
 }
 
 // R3/F8: a Hello for another node is refused, and nothing changes.
+// D6: the hello reply carries the game port of each server that has one,
+// read from the server's config, and readiness from a report is stored.
+func TestHelloGamePortsAndReadiness(t *testing.T) {
+	e := setup(t, nil)
+	mustExec(t, e.owner, `UPDATE waystone.servers SET config = '{"port": 25565}' WHERE server_id = $1`, serverA1)
+	s := e.stream(t, e.client(t))
+	reply := hello(t, s)
+	if got := reply.GetGamePorts(); len(got) != 1 || got[serverA1] != 25565 {
+		t.Fatalf("game ports = %v, want only a1: 25565", got)
+	}
+	ready := entry(serverA1, running)
+	ready.Readiness = agentv1.Readiness_READINESS_READY
+	notReady := entry(serverA2, stopped)
+	notReady.Readiness = agentv1.Readiness_READINESS_NOT_READY
+	if err := s.Send(report(reply.GetEpoch(), 1, ready, notReady)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "readiness stored", func() bool {
+		return e.readiness(t, serverA1) == "ready" && e.readiness(t, serverA2) == "not_ready"
+	})
+}
+
 func TestWrongNode(t *testing.T) {
 	e := setup(t, nil)
 	for _, node := range []string{nodeB, strings.ToUpper(nodeA), "", "not-a-uuid"} {
@@ -159,6 +181,21 @@ func TestReportRules(t *testing.T) {
 		{"unknown enum", false, func(ep int64) *agentv1.ConnectRequest { return report(ep, 5, entry(serverA1, 99)) }, codes.InvalidArgument, "invalid_report"},
 		{"unspecified", false, func(ep int64) *agentv1.ConnectRequest {
 			return report(ep, 5, entry(serverA1, agentv1.ProcessState_PROCESS_STATE_UNSPECIFIED))
+		}, codes.InvalidArgument, "invalid_report"},
+		{"readiness unspecified", false, func(ep int64) *agentv1.ConnectRequest {
+			en := entry(serverA1, running)
+			en.Readiness = agentv1.Readiness_READINESS_UNSPECIFIED
+			return report(ep, 5, en)
+		}, codes.InvalidArgument, "invalid_report"},
+		{"readiness unknown enum", false, func(ep int64) *agentv1.ConnectRequest {
+			en := entry(serverA1, running)
+			en.Readiness = 99
+			return report(ep, 5, en)
+		}, codes.InvalidArgument, "invalid_report"},
+		{"ready while stopped", false, func(ep int64) *agentv1.ConnectRequest {
+			en := entry(serverA1, stopped)
+			en.Readiness = agentv1.Readiness_READINESS_READY
+			return report(ep, 5, en)
 		}, codes.InvalidArgument, "invalid_report"},
 		{"33-byte native_state", false, func(ep int64) *agentv1.ConnectRequest {
 			en := entry(serverA1, running)

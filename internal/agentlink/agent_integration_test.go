@@ -27,6 +27,17 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/api"
 )
 
+// fakeProber is the readiness probe: ready for the ports in ready, not
+// ready for any other.
+type fakeProber struct{ ready map[uint32]bool }
+
+func (p fakeProber) Probe(_ context.Context, port uint32) error {
+	if p.ready[port] {
+		return nil
+	}
+	return errors.New("not ready")
+}
+
 // fakeHelper answers STATUS per server; answer can be swapped mid-test.
 type fakeHelper struct {
 	mu     sync.Mutex
@@ -74,6 +85,12 @@ func (s *sleeps) got() []time.Duration {
 // channel that closes when Run returns, and the cancel that stops it.
 func runAgent(t *testing.T, e *env, h agent.Helper, controllerUID uint32, sl *sleeps) (<-chan struct{}, context.CancelFunc) {
 	t.Helper()
+	return runAgentProbing(t, e, h, controllerUID, sl, fakeProber{})
+}
+
+// runAgentProbing is runAgent with the given readiness probe.
+func runAgentProbing(t *testing.T, e *env, h agent.Helper, controllerUID uint32, sl *sleeps, p agent.Prober) (<-chan struct{}, context.CancelFunc) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	cfg := agent.Config{
@@ -83,6 +100,7 @@ func runAgent(t *testing.T, e *env, h agent.Helper, controllerUID uint32, sl *sl
 		Version:          "test",
 		Helper:           h,
 		Runner:           &fakeRunner{},
+		Prober:           p,
 		Log:              log.New(io.Discard, "", 0),
 	}
 	if sl != nil {
@@ -236,6 +254,30 @@ func TestEndToEnd(t *testing.T) {
 	}
 }
 
+// D6 end to end: the controller hands the agent a1's port, the real agent
+// probes it while a1 runs, and the readiness lands in the database. a2
+// has no port, so it's unknown while running, and not_ready once stopped.
+func TestEndToEndReadiness(t *testing.T) {
+	e := setup(t, func(c *Config) { c.ReportInterval = time.Second })
+	mustExec(t, e.owner, `UPDATE waystone.servers SET config = '{"port": 25565}' WHERE server_id = $1`, serverA1)
+	h := &fakeHelper{}
+	h.set(map[string]*helperv1.Response{
+		serverA1: {RunState: helperv1.RunState_RUN_STATE_RUNNING},
+		serverA2: {RunState: helperv1.RunState_RUN_STATE_RUNNING},
+	})
+	runAgentProbing(t, e, h, uint32(os.Getuid()), nil, fakeProber{ready: map[uint32]bool{25565: true}})
+	waitFor(t, "a1 ready, a2 unknown", func() bool {
+		return e.readiness(t, serverA1) == "ready" && e.readiness(t, serverA2) == "unknown"
+	})
+	h.set(map[string]*helperv1.Response{
+		serverA1: {RunState: helperv1.RunState_RUN_STATE_STOPPING},
+		serverA2: {RunState: helperv1.RunState_RUN_STATE_STOPPED},
+	})
+	waitFor(t, "both not ready", func() bool {
+		return e.readiness(t, serverA1) == "not_ready" && e.readiness(t, serverA2) == "not_ready"
+	})
+}
+
 // R6: a session that lasts a full report interval resets the backoff.
 // Three failed dials grow the waits to 1, 2 and 4 s; then a healthy
 // session ends, and the next wait is 1 s again, not 8.
@@ -252,6 +294,7 @@ func TestHealthySessionResetsBackoff(t *testing.T) {
 		NodeID:           nodeA,
 		Helper:           &fakeHelper{},
 		Runner:           &fakeRunner{},
+		Prober:           fakeProber{},
 		Log:              log.New(io.Discard, "", 0),
 		Dial: func(ctx context.Context) (net.Conn, error) {
 			mu.Lock()

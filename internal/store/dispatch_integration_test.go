@@ -203,7 +203,7 @@ func TestClaimRacesTakeover(t *testing.T) {
 	go func() {
 		helloDone <- e.store.InTenantTx(context.Background(), nodeActA, func(ctx context.Context, tx *Tx) error {
 			var err error
-			current, _, err = tx.NodeHello(ctx)
+			current, _, _, err = tx.NodeHello(ctx)
 			close(inHello)
 			<-finishHello
 			return err
