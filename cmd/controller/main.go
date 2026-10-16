@@ -28,6 +28,7 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/api"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/sdlisten"
+	"github.com/sharddevs/waystone_panel/internal/session"
 	"github.com/sharddevs/waystone_panel/internal/store"
 	"github.com/sharddevs/waystone_panel/internal/web"
 )
@@ -283,12 +284,6 @@ func run(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "-hsts-max-age %d: must be 1 to %d\n", *hstsMaxAge, web.MaxHSTSMaxAge)
 		return 2
 	}
-	webHandler, err := web.New(web.Config{Public: public, ProxyUID: uint32(*proxyUID), HSTSMaxAge: *hstsMaxAge}, webRoutes()...)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-
 	ctx := context.Background()
 
 	db, err := store.Open(ctx, *dsn)
@@ -297,6 +292,17 @@ func run(args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer db.Close()
+
+	sessions, err := session.New(session.Config{Store: db})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	webHandler, err := web.New(web.Config{Public: public, ProxyUID: uint32(*proxyUID), HSTSMaxAge: *hstsMaxAge, Sessions: sessions}, webRoutes(sessions)...)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 
 	socks, err := listeners(*socketPath, *webSocket, *agentSocket, os.Getpid(), os.Getenv)
 	if err != nil {

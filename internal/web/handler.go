@@ -21,11 +21,19 @@ const (
 	// CSRFNotApplicable is only allowed for GET routes (which also answer
 	// HEAD), and they must not change state.
 	CSRFNotApplicable
-	// CSRFRequired is for every route that can change state. It needs the
-	// session-bound token that stage 5 adds. Until then, New refuses it,
-	// so no state-changing browser route can exist without one.
+	// CSRFRequired is for every route that can change state. The request
+	// must carry a signed-in session and, in the X-CSRF-Token header, that
+	// session's token (C-W5). The route needs Config.Sessions.
 	CSRFRequired
+	// CSRFPreSession is only for sign-in (POST LoginPattern), which has no
+	// session to bind a token to yet (Q5). It relies on the guard's exact
+	// Origin check (W9) and SameSite=Lax on the cookie, OWASP's accepted
+	// defence against login CSRF. New refuses it on any other route.
+	CSRFPreSession
 )
+
+// LoginPattern is the one route that may use CSRFPreSession.
+const LoginPattern = "/api/v1/session"
 
 func (p CSRFPolicy) String() string {
 	switch p {
@@ -33,21 +41,25 @@ func (p CSRFPolicy) String() string {
 		return "not_applicable"
 	case CSRFRequired:
 		return "required"
+	case CSRFPreSession:
+		return "pre_session"
 	}
 	return "unset"
 }
 
-// errCSRFNotBuilt: stage 5 builds session-bound CSRF tokens into this
-// package, and only then can a route ask for them.
-var errCSRFNotBuilt = errors.New("CSRF tokens are not built yet (stage 5); a state-changing browser route can't be registered before then")
-
 // Route is one browser route. Pattern is a path pattern as http.ServeMux
 // understands it ("/servers/{id}"), without a method or host.
+//
+// Session says the route is for a signed-in user: New wraps it so that a
+// request without a valid session gets a 401 before the handler runs,
+// and the handler finds the session with SessionFrom. CSRFRequired
+// implies it.
 type Route struct {
 	Method  string
 	Pattern string
 	Handler http.Handler
 	CSRF    CSRFPolicy
+	Session bool
 }
 
 // RouteInfo describes a registered route, for the route-coverage tests.
@@ -55,14 +67,17 @@ type RouteInfo struct {
 	Method  string
 	Pattern string
 	CSRF    CSRFPolicy
+	Session bool
 }
 
-// Config is what New needs. Public and ProxyUID are required.
+// Config is what New needs. Public and ProxyUID are required, and
+// Sessions is required as soon as one route needs a session.
 type Config struct {
 	Public     Origin
 	ProxyUID   uint32
-	HSTSMaxAge int         // 0 means DefaultHSTSMaxAge
-	Log        *log.Logger // nil means log.Default()
+	HSTSMaxAge int             // 0 means DefaultHSTSMaxAge
+	Log        *log.Logger     // nil means log.Default()
+	Sessions   SessionResolver // the session store's side of sign-in
 }
 
 // Handler is the browser-facing handler. Its fields are unexported, so
@@ -123,15 +138,25 @@ func New(cfg Config, routes ...Route) (*Handler, error) {
 		if err := checkRoute(rt); err != nil {
 			return nil, fmt.Errorf("web: route %s %s: %w", rt.Method, rt.Pattern, err)
 		}
+		if rt.CSRF == CSRFRequired {
+			rt.Session = true
+		}
+		if rt.Session && cfg.Sessions == nil {
+			return nil, fmt.Errorf("web: route %s %s needs a session, and Config.Sessions is nil", rt.Method, rt.Pattern)
+		}
 		key := rt.Method + " " + rt.Pattern
 		if seen[key] {
 			return nil, fmt.Errorf("web: route %s registered twice", key)
 		}
 		seen[key] = true
-		if err := register(h.mux, key, rt.Handler); err != nil {
+		handler := rt.Handler
+		if rt.Session {
+			handler = requireSession(cfg.Sessions, rt.CSRF == CSRFRequired, cfg.Log, handler)
+		}
+		if err := register(h.mux, key, handler); err != nil {
 			return nil, fmt.Errorf("web: route %s: %w", key, err)
 		}
-		h.routes = append(h.routes, RouteInfo{Method: rt.Method, Pattern: rt.Pattern, CSRF: rt.CSRF})
+		h.routes = append(h.routes, RouteInfo{Method: rt.Method, Pattern: rt.Pattern, CSRF: rt.CSRF, Session: rt.Session})
 	}
 	h.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { writeError(w, CodeNotFound) })
 	return h, nil
@@ -139,7 +164,8 @@ func New(cfg Config, routes ...Route) (*Handler, error) {
 
 // checkRoute enforces what a route may be: a known method, a path-only
 // pattern (no host, no method, no spaces), a handler, and a CSRF policy
-// that fits the method.
+// that fits the method: NotApplicable for GET, Required for everything
+// else, and PreSession only for sign-in.
 func checkRoute(rt Route) error {
 	switch rt.Method {
 	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -158,7 +184,16 @@ func checkRoute(rt Route) error {
 			return errors.New("only a GET route may be CSRFNotApplicable")
 		}
 	case CSRFRequired:
-		return errCSRFNotBuilt
+		if rt.Method == http.MethodGet {
+			return errors.New("a GET route must be CSRFNotApplicable; it must not change state")
+		}
+	case CSRFPreSession:
+		if rt.Method != http.MethodPost || rt.Pattern != LoginPattern {
+			return errors.New("only POST " + LoginPattern + " may be CSRFPreSession")
+		}
+		if rt.Session {
+			return errors.New("a CSRFPreSession route is used before there is a session")
+		}
 	default:
 		return errors.New("the route must declare its CSRF policy")
 	}

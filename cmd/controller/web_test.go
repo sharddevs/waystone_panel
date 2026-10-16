@@ -3,6 +3,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log"
 	"os"
@@ -10,6 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharddevs/waystone_panel/internal/password"
+	"github.com/sharddevs/waystone_panel/internal/session"
+	"github.com/sharddevs/waystone_panel/internal/store"
 	"github.com/sharddevs/waystone_panel/internal/web"
 )
 
@@ -20,13 +25,52 @@ func TestWebRoutesCovered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := web.New(web.Config{Public: o, ProxyUID: 4242, Log: log.New(io.Discard, "", 0)}, webRoutes()...)
+	sessions, err := session.New(session.Config{Store: noStore{}, Params: password.Params{Memory: 8, Time: 1, Threads: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := web.New(web.Config{Public: o, ProxyUID: 4242, Log: log.New(io.Discard, "", 0), Sessions: sessions}, webRoutes(sessions)...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := web.RouteCoverage(h); err != nil {
 		t.Fatal(err)
 	}
+	// The four session routes, with the CSRF policy each must have.
+	want := map[string]web.CSRFPolicy{
+		"POST /api/v1/session":              web.CSRFPreSession,
+		"GET /api/v1/session":               web.CSRFNotApplicable,
+		"DELETE /api/v1/session":            web.CSRFRequired,
+		"PATCH /api/v1/session/preferences": web.CSRFRequired,
+	}
+	for _, rt := range h.Routes() {
+		key := rt.Method + " " + rt.Pattern
+		if p, ok := want[key]; ok {
+			if rt.CSRF != p {
+				t.Errorf("%s: CSRF %v, want %v", key, rt.CSRF, p)
+			}
+			delete(want, key)
+		}
+	}
+	for k := range want {
+		t.Errorf("route %s missing", k)
+	}
+}
+
+// noStore is a session store that is never reached: the coverage
+// requests carry no cookie and no valid body.
+type noStore struct{}
+
+func (noStore) LookupLogin(context.Context, string) (store.LoginRecord, error) {
+	return store.LoginRecord{}, errors.New("no store")
+}
+
+func (noStore) LookupSession(context.Context, [32]byte) (store.SessionRecord, error) {
+	return store.SessionRecord{}, errors.New("no store")
+}
+
+func (noStore) InTenantTx(context.Context, store.Actor, func(context.Context, *store.Tx) error) error {
+	return errors.New("no store")
 }
 
 // W4, W5, W6: the browser-facing configuration is required and checked

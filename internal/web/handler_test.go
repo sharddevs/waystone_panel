@@ -13,7 +13,7 @@ import (
 var okHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") })
 
 // R3: New refuses anything that isn't a well-formed, declared route, and
-// a state-changing route can't exist before stage 5's CSRF tokens.
+// a CSRF policy that doesn't fit the route (C-W5, Q5).
 func TestNewRefusesBadRoutes(t *testing.T) {
 	o := mustOrigin(t, "https://panel.example.com")
 	quiet := log.New(io.Discard, "", 0)
@@ -25,8 +25,13 @@ func TestNewRefusesBadRoutes(t *testing.T) {
 		{"no CSRF policy", Route{Method: "GET", Pattern: "/x", Handler: okHandler}, "CSRF policy"},
 		{"POST not applicable", Route{Method: "POST", Pattern: "/x", Handler: okHandler, CSRF: CSRFNotApplicable}, "only a GET"},
 		{"DELETE not applicable", Route{Method: "DELETE", Pattern: "/x", Handler: okHandler, CSRF: CSRFNotApplicable}, "only a GET"},
-		{"POST required (stage 5)", Route{Method: "POST", Pattern: "/x", Handler: okHandler, CSRF: CSRFRequired}, "not built yet"},
-		{"GET required (stage 5)", Route{Method: "GET", Pattern: "/x", Handler: okHandler, CSRF: CSRFRequired}, "not built yet"},
+		{"POST required without sessions", Route{Method: "POST", Pattern: "/x", Handler: okHandler, CSRF: CSRFRequired}, "Config.Sessions"},
+		{"GET session without sessions", Route{Method: "GET", Pattern: "/x", Handler: okHandler, CSRF: CSRFNotApplicable, Session: true}, "Config.Sessions"},
+		{"GET required", Route{Method: "GET", Pattern: "/x", Handler: okHandler, CSRF: CSRFRequired}, "must be CSRFNotApplicable"},
+		{"pre-session elsewhere", Route{Method: "POST", Pattern: "/x", Handler: okHandler, CSRF: CSRFPreSession}, "may be CSRFPreSession"},
+		{"pre-session on GET", Route{Method: "GET", Pattern: LoginPattern, Handler: okHandler, CSRF: CSRFPreSession}, "may be CSRFPreSession"},
+		{"pre-session on DELETE", Route{Method: "DELETE", Pattern: LoginPattern, Handler: okHandler, CSRF: CSRFPreSession}, "may be CSRFPreSession"},
+		{"pre-session with a session", Route{Method: "POST", Pattern: LoginPattern, Handler: okHandler, CSRF: CSRFPreSession, Session: true}, "before there is a session"},
 		{"unknown policy", Route{Method: "GET", Pattern: "/x", Handler: okHandler, CSRF: CSRFPolicy(9)}, "CSRF policy"},
 		{"HEAD", Route{Method: "HEAD", Pattern: "/x", Handler: okHandler, CSRF: CSRFNotApplicable}, "method"},
 		{"OPTIONS", Route{Method: "OPTIONS", Pattern: "/x", Handler: okHandler, CSRF: CSRFNotApplicable}, "method"},
@@ -116,7 +121,7 @@ func TestRouteCoverageCatchesGap(t *testing.T) {
 }
 
 func TestCSRFPolicyString(t *testing.T) {
-	if CSRFNotApplicable.String() != "not_applicable" || CSRFRequired.String() != "required" || csrfUnset.String() != "unset" {
+	if CSRFNotApplicable.String() != "not_applicable" || CSRFRequired.String() != "required" || CSRFPreSession.String() != "pre_session" || csrfUnset.String() != "unset" {
 		t.Error("CSRFPolicy names")
 	}
 }
