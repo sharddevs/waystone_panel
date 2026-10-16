@@ -7,7 +7,10 @@ import (
 	"time"
 )
 
-// limiter counts failed sign-ins per key in a sliding window, in memory.
+// limiter counts sign-in attempts per key in a sliding window, in memory.
+// An attempt is counted before its password is checked and taken back
+// if it succeeds or can't be decided, so what stays counted are the
+// failures.
 // The controller is one process, so this is the whole count; a restart
 // forgets it, which only gives an attacker one fresh window.
 type limiter struct {
@@ -24,37 +27,64 @@ func newLimiter(window time.Duration) *limiter {
 	return &limiter{window: window, failures: map[string][]time.Time{}}
 }
 
-// blocked reports whether key has max or more failures in the window, and
-// if so how long until the oldest of them drops out.
-func (l *limiter) blocked(key string, max int, now time.Time) (bool, time.Duration) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	f := l.live(key, now)
-	if len(f) < max {
-		return false, 0
-	}
-	// The oldest failure that keeps the count at max must expire.
-	return true, f[len(f)-max].Add(l.window).Sub(now)
+// limit is one key and how many attempts it may have in the window.
+type limit struct {
+	key, name string
+	max       int
 }
 
-// fail records a failure for each key and returns the new counts.
-func (l *limiter) fail(now time.Time, keys ...string) []int {
+// attempt counts one sign-in attempt against every limit, or none. Under
+// one lock it refuses if any key already has max attempts in the window,
+// naming that limit and how long until its oldest attempt that matters
+// drops out; otherwise it records now for every key and returns their new
+// counts. Counting before the password is checked is what stops parallel
+// guesses: each one takes its place in the count before it hashes, so at
+// most max of them can ever be in flight (A1).
+func (l *limiter) attempt(now time.Time, limits ...limit) (counts []int, refused string, wait time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	for _, lim := range limits {
+		if f := l.live(lim.key, now); len(f) >= lim.max {
+			// The oldest attempt that keeps the count at max must expire.
+			return nil, lim.name, f[len(f)-lim.max].Add(l.window).Sub(now)
+		}
+	}
 	if len(l.failures) >= sweepAt {
 		for k := range l.failures {
 			l.live(k, now)
 		}
 	}
-	counts := make([]int, len(keys))
-	for i, k := range keys {
-		l.failures[k] = append(l.live(k, now), now)
-		counts[i] = len(l.failures[k])
+	counts = make([]int, len(limits))
+	for i, lim := range limits {
+		l.failures[lim.key] = append(l.live(lim.key, now), now)
+		counts[i] = len(l.failures[lim.key])
 	}
-	return counts
+	return counts, "", 0
 }
 
-// reset forgets key's failures (a successful sign-in for that username).
+// refund takes back an attempt recorded at at for each key: the sign-in
+// couldn't be decided (a 503), or it succeeded and shouldn't count
+// against its address.
+func (l *limiter) refund(at time.Time, keys ...string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, k := range keys {
+		f := l.failures[k]
+		for i := len(f) - 1; i >= 0; i-- {
+			if f[i].Equal(at) {
+				f = append(f[:i:i], f[i+1:]...)
+				break
+			}
+		}
+		if len(f) == 0 {
+			delete(l.failures, k)
+		} else {
+			l.failures[k] = f
+		}
+	}
+}
+
+// reset forgets key's attempts (a successful sign-in for that username).
 func (l *limiter) reset(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

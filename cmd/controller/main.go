@@ -355,6 +355,14 @@ func run(args []string, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stderr, "startup recovery: %d running operation(s) marked uncertain\n", recovered)
 
+	// I4: sessions whose browser never comes back are deleted at start
+	// and then every hour.
+	stopPurge := make(chan struct{})
+	defer close(stopPurge)
+	go purgeSessions(db, purgeEvery, stopPurge, func(format string, args ...any) {
+		fmt.Fprintf(stderr, format+"\n", args...)
+	})
+
 	fmt.Fprintf(stderr, "Waystone controller listening on %s\n", listener.Addr())
 	fmt.Fprintf(stderr, "Waystone web listening on %s for %s, proxy uid %d\n", webServer.Addr(), public, *proxyUID)
 
@@ -401,6 +409,9 @@ func run(args []string, stderr io.Writer) int {
 	if !shutdown(server, webServer, link, shutdownTimeout, stderr) {
 		code = 1
 	}
+	// Failed sign-ins' audit rows are written after their responses (A3);
+	// let the last ones land before the database closes.
+	sessions.Wait()
 	return code
 }
 

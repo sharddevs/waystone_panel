@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"unicode"
 	"unicode/utf8"
 
@@ -20,6 +21,10 @@ type Denial struct {
 	ResourceID   string // exactly as the client sent it, so it may not be a real ID
 	Reason       string // a fixed code such as "forbidden", never error text
 	RequestID    string // the request's ID, to find the matching log lines
+	// ClientIP, if set, is the browser's address as the trusted proxy
+	// reported it (A6), 1 to 45 bytes of an IP address. Empty means none
+	// (api.sock has no address; its actor is the kernel's uid).
+	ClientIP string
 }
 
 // RecordDenial adds one audit_events row for the transaction's actor and
@@ -83,6 +88,14 @@ func (t *Tx) insertAudit(ctx context.Context, d Denial, outcome string) error {
 		}
 	}
 
+	var clientIP *string
+	if d.ClientIP != "" {
+		if a, err := netip.ParseAddr(d.ClientIP); err != nil || len(d.ClientIP) > 45 || a.String() != d.ClientIP {
+			return ErrInvalidInput
+		}
+		clientIP = &d.ClientIP
+	}
+
 	eventID, err := ids.NewV7()
 	if err != nil {
 		return fmt.Errorf("generate audit event ID: %w", err)
@@ -101,11 +114,12 @@ func (t *Tx) insertAudit(ctx context.Context, d Denial, outcome string) error {
 		reason,
 		request_id,
 		outcome,
-		at
+		at,
+		client_ip
 	)
 	VALUES (
 		$1, $2, $3, $4, $5, $6,
-		$7, $8, $9, $10, $11, $12
+		$7, $8, $9, $10, $11, $12, $13
 	)
 `,
 		t.TenantID(),
@@ -120,6 +134,7 @@ func (t *Tx) insertAudit(ctx context.Context, d Denial, outcome string) error {
 		d.RequestID,
 		outcome,
 		t.Now(),
+		clientIP,
 	)
 	if err != nil {
 		return fmt.Errorf("record audit event: %w", err)

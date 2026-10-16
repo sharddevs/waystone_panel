@@ -319,3 +319,83 @@ func TestUserStartsOperation(t *testing.T) {
 		t.Errorf("operation actor = %+v, want %+v", op.Actor, trevor)
 	}
 }
+
+// I4: purge_sessions deletes what can't be used any more, in every
+// tenant, and nothing else. A5: no session may outlive 168 hours.
+func TestPurgeSessionsAndLifetime(t *testing.T) {
+	e, trevor, _ := accounts(t)
+	ctx := context.Background()
+	for _, tok := range []string{"live", "expired", "idle"} {
+		if _, err := e.createSession(trevor, session(tok, e)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set := func(tok, sql string) {
+		t.Helper()
+		h := sha256.Sum256([]byte(tok))
+		mustExec(t, e.owner, `UPDATE waystone.sessions SET `+sql+` WHERE token_sha256 = $1`, h[:])
+	}
+	set("live", `created_at = now() - interval '1 hour', last_seen_at = now() - interval '1 hour', expires_at = now() + interval '6 days'`)
+	set("expired", `created_at = now() - interval '8 days', last_seen_at = now() - interval '1 hour', expires_at = now() - interval '1 day'`)
+	set("idle", `created_at = now() - interval '13 hours', last_seen_at = now() - interval '12 hours 1 second', expires_at = now() + interval '6 days'`)
+
+	n, err := e.store.PurgeSessions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("purged %d, want 2", n)
+	}
+	var left []byte
+	if err := e.owner.QueryRow(ctx, `SELECT token_sha256 FROM waystone.sessions`).Scan(&left); err != nil {
+		t.Fatalf("the live session: %v", err)
+	}
+	if h := sha256.Sum256([]byte("live")); string(left) != string(h[:]) {
+		t.Error("the wrong session survived")
+	}
+	if n, err := e.store.PurgeSessions(ctx); err != nil || n != 0 {
+		t.Errorf("second purge: %d %v, want 0", n, err)
+	}
+
+	// A5: the database refuses a lifetime over 168 hours, even from the
+	// owner, and allows exactly 168.
+	h := sha256.Sum256([]byte("live"))
+	if _, err := e.owner.Exec(ctx, `UPDATE waystone.sessions SET expires_at = created_at + interval '168 hours 1 second' WHERE token_sha256 = $1`, h[:]); err == nil {
+		t.Error("a session lifetime over 168 hours was accepted")
+	}
+	mustExec(t, e.owner, `UPDATE waystone.sessions SET expires_at = created_at + interval '168 hours' WHERE token_sha256 = $1`, h[:])
+	long := session("long", e)
+	long.ExpiresAt = e.clock.Now().Add(7*24*time.Hour + time.Second)
+	if _, err := e.createSession(trevor, long); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("CreateSession with a lifetime over 168 hours: %v, want ErrInvalidInput", err)
+	}
+}
+
+// A6: a denial can carry the client's address, and only a real one.
+func TestDenialClientIP(t *testing.T) {
+	e, trevor, _ := accounts(t)
+	ctx := context.Background()
+	record := func(ip string) error {
+		return e.asActor(trevor, func(ctx context.Context, tx *Tx) error {
+			return tx.RecordDenial(ctx, Denial{Action: "session.create", ResourceType: "user", ResourceID: trevor.ID,
+				Reason: "wrong_password", RequestID: "req-ip", ClientIP: ip})
+		})
+	}
+	for _, ip := range []string{"203.0.113.7", "2001:db8::1", ""} {
+		if err := record(ip); err != nil {
+			t.Errorf("%q: %v", ip, err)
+		}
+	}
+	for _, bad := range []string{"not an ip", "203.0.113.7 ", "::ffff:203.0.113.007", "fe80::1%" + strings.Repeat("x", 50)} {
+		if err := record(bad); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("%q: %v, want ErrInvalidInput", bad, err)
+		}
+	}
+	var withIP, without int
+	if err := e.owner.QueryRow(ctx, `SELECT count(client_ip), count(*) - count(client_ip) FROM waystone.audit_events WHERE request_id = 'req-ip'`).Scan(&withIP, &without); err != nil {
+		t.Fatal(err)
+	}
+	if withIP != 2 || without != 1 {
+		t.Errorf("%d rows with an address and %d without, want 2 and 1", withIP, without)
+	}
+}

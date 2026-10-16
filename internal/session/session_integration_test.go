@@ -337,9 +337,11 @@ func TestSignInRefusals(t *testing.T) {
 	if n := e.count(t, `SELECT count(*) FROM waystone.sessions`); n != 0 {
 		t.Errorf("%d sessions after refusals", n)
 	}
-	for reason, want := range map[string]int{"wrong_password": 1, "account_disabled": 1} {
-		if n := e.count(t, `SELECT count(*) FROM waystone.audit_events WHERE action = 'session.create' AND outcome = 'denied' AND reason = $1 AND actor_type = 'user'`, reason); n != want {
-			t.Errorf("%d audit rows with reason %s, want %d", n, reason, want)
+	e.m.Wait() // the audit rows are written after the response (A3)
+	// Each row carries the address the attempt came from (A6).
+	for reason, ip := range map[string]string{"wrong_password": "198.51.100.1", "account_disabled": "198.51.100.3"} {
+		if n := e.count(t, `SELECT count(*) FROM waystone.audit_events WHERE action = 'session.create' AND outcome = 'denied' AND reason = $1 AND actor_type = 'user' AND client_ip = $2`, reason, ip); n != 1 {
+			t.Errorf("%d audit rows with reason %s from %s, want 1", n, reason, ip)
 		}
 	}
 
@@ -385,6 +387,7 @@ func TestSignInRateLimit(t *testing.T) {
 	if got := w.Header().Get("Retry-After"); got != "600" {
 		t.Errorf("Retry-After %q, want 600", got)
 	}
+	e.m.Wait()
 	if n := e.count(t, `SELECT count(*) FROM waystone.audit_events WHERE reason = 'locked_out'`); n != 1 {
 		t.Errorf("%d locked_out audit rows, want 1", n)
 	}

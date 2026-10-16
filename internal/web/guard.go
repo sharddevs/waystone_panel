@@ -53,8 +53,11 @@ func infoFrom(ctx context.Context) (requestInfo, bool) {
 }
 
 // ClientIP is the browser's address as the trusted proxy reported it. It
-// is metadata for logs and audit records only: never use it for a
-// security decision (W3).
+// is metadata for logs and audit records, and the key of the sign-in rate
+// limit, which is its one allowed security use: the guard has already
+// checked that the proxy is the trusted one, and a wrong address there
+// only moves an attempt to another bucket. Never use it to identify or
+// authorize anyone (W3).
 func ClientIP(r *http.Request) (netip.Addr, bool) {
 	ri, ok := infoFrom(r.Context())
 	if !ok {

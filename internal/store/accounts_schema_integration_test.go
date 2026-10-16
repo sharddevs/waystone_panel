@@ -15,12 +15,14 @@ import (
 // S-Q4: the two lookups are the only new way across RLS, and each is
 // locked down: SECURITY DEFINER owned by waystone_owner, a fixed
 // search_path, one argument, EXECUTE for waystone_app and nobody else.
+// purge_sessions (00007, I4) is held to the same, with no argument.
 func TestLookupFunctionsLockedDown(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
 	for name, args := range map[string]string{
 		"login_lookup":   "p_username text",
 		"session_lookup": "p_token_sha256 bytea",
+		"purge_sessions": "",
 	} {
 		var definer bool
 		var owner, identity string
@@ -93,7 +95,7 @@ func TestOnlyKnownSecurityDefinerFunctions(t *testing.T) {
 			t.Errorf("%s: config %q has no fixed search_path", name, config)
 		}
 	}
-	want := []string{"login_lookup", "recover_running_operations", "session_lookup"}
+	want := []string{"login_lookup", "purge_sessions", "recover_running_operations", "session_lookup"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("SECURITY DEFINER functions %v, want %v", names, want)
 	}

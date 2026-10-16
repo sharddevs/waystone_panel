@@ -10,6 +10,7 @@ import (
 	"math"
 	"mime"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"time"
 
@@ -63,22 +64,22 @@ func (m *Manager) signIn(w http.ResponseWriter, r *http.Request) {
 	if store.ValidUsername(body.Username) {
 		userKey = "user:" + body.Username
 	}
-	ipKey := "ip:" + ip.String()
-	for _, l := range []struct {
-		key, name string
-		max       int
-	}{{ipKey, "per_ip", limitPerIP}, {userKey, "per_user", limitPerUser}} {
-		if blocked, wait := m.limits.blocked(l.key, l.max, now); blocked {
-			m.log.Printf("session sign-in refused: rate limited limit=%s client_ip=%s", l.name, ip)
-			w.Header().Set("Retry-After", strconv.Itoa(retryAfter(wait)))
-			web.WriteError(w, web.CodeTooManyRequests)
-			return
-		}
+	ipKey := addrKey(ip)
+	// Counted now, before the lookup and the hash, so parallel guesses
+	// can't all slip in under the limit (A1).
+	counts, refused, wait := m.limits.attempt(now,
+		limit{ipKey, "per_ip", limitPerIP}, limit{userKey, "per_user", limitPerUser})
+	if refused != "" {
+		m.log.Printf("session sign-in refused: rate limited limit=%s client_ip=%s", refused, ip)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter(wait)))
+		web.WriteError(w, web.CodeTooManyRequests)
+		return
 	}
 
 	rec, err := m.store.LookupLogin(ctx, body.Username)
 	known := err == nil
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		m.limits.refund(now, ipKey, userKey)
 		m.log.Printf("session sign-in: login lookup failed: %v", err)
 		web.WriteError(w, web.CodeBusy)
 		return
@@ -91,11 +92,12 @@ func (m *Manager) signIn(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, password.ErrMalformed) {
 		m.log.Printf("session sign-in: the stored hash for user %s is malformed", rec.UserID)
 	} else if err != nil {
+		m.limits.refund(now, ipKey, userKey)
 		web.WriteError(w, web.CodeBusy)
 		return
 	}
 	if !known || rec.Disabled || !match {
-		counts := m.limits.fail(now, ipKey, userKey)
+		// Already counted by attempt.
 		reason := "unknown_user"
 		switch {
 		case !known:
@@ -112,13 +114,18 @@ func (m *Manager) signIn(w http.ResponseWriter, r *http.Request) {
 			who = rec.UserID
 		}
 		m.log.Printf("session sign-in refused: user=%s reason=%s client_ip=%s", who, reason, ip)
-		if known {
-			m.auditFailure(ctx, rec, reason)
-		}
 		web.WriteError(w, web.CodeInvalidCredentials)
+		// The audit row is written after the response, so a known account
+		// answers no later than an unknown one (A3).
+		if known {
+			m.auditFailure(rec, reason, ip)
+		}
 		return
 	}
+	// A success clears the username's count and doesn't count against
+	// the address.
 	m.limits.reset(userKey)
+	m.limits.refund(now, ipKey)
 
 	// A sign-in always makes a new session (no fixation). The one the
 	// browser came with, if any, is ended.
@@ -177,24 +184,47 @@ func (m *Manager) endPresented(ctx context.Context, r *http.Request) {
 }
 
 // auditFailure records a refused sign-in for an existing account, with
-// action session.create (scope §3.6). Unknown usernames are only logged:
-// there is no actor or tenant to file them under.
-func (m *Manager) auditFailure(ctx context.Context, rec store.LoginRecord, reason string) {
-	requestID, err := ids.NewV7()
-	if err == nil {
-		err = m.store.InTenantTx(ctx, rec.Actor(), func(ctx context.Context, tx *store.Tx) error {
-			return tx.RecordDenial(ctx, store.Denial{
-				Action:       "session.create",
-				ResourceType: "user",
-				ResourceID:   rec.UserID,
-				Reason:       reason,
-				RequestID:    requestID,
+// action session.create (scope §3.6), in the background: the response has
+// already gone. The row's actor is the account that was tried (the
+// schema needs one); its client_ip is where the attempt came from (A6).
+// Unknown usernames are only logged: there is no actor or tenant to file
+// them under.
+func (m *Manager) auditFailure(rec store.LoginRecord, reason string, ip netip.Addr) {
+	m.audits.Add(1)
+	go func() {
+		defer m.audits.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), auditTimeout)
+		defer cancel()
+		requestID, err := ids.NewV7()
+		if err == nil {
+			err = m.store.InTenantTx(ctx, rec.Actor(), func(ctx context.Context, tx *store.Tx) error {
+				return tx.RecordDenial(ctx, store.Denial{
+					Action:       "session.create",
+					ResourceType: "user",
+					ResourceID:   rec.UserID,
+					Reason:       reason,
+					RequestID:    requestID,
+					ClientIP:     ip.WithZone("").String(),
+				})
 			})
-		})
+		}
+		if err != nil {
+			m.log.Printf("session sign-in: auditing a refusal for user %s failed: %v", rec.UserID, err)
+		}
+	}()
+}
+
+// addrKey is the per-address limiter key. An IPv4-mapped IPv6 address
+// counts as its IPv4 address, and IPv6 counts by its /64: one home
+// connection has a whole /64, and one key per address would give it 2^64
+// fresh buckets (A4).
+func addrKey(ip netip.Addr) string {
+	ip = ip.Unmap().WithZone("")
+	if ip.Is6() {
+		p, _ := ip.Prefix(64)
+		return "ip:" + p.String()
 	}
-	if err != nil {
-		m.log.Printf("session sign-in: auditing a refusal for user %s failed: %v", rec.UserID, err)
-	}
+	return "ip:" + ip.String()
 }
 
 // sessionJSON is GET /api/v1/session's body.

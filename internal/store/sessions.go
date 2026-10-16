@@ -101,6 +101,10 @@ type NewSession struct {
 	UserAgent   string // stored after CleanUserAgent
 }
 
+// MaxSessionLifetime is the longest a session may live, the absolute
+// timeout (Q7). Migration 00007 holds the table to it too (A5).
+const MaxSessionLifetime = 168 * time.Hour
+
 var csrfPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
 // requireUser: the method is for a browser user acting for themselves.
@@ -128,6 +132,9 @@ func (t *Tx) CreateSession(ctx context.Context, n NewSession) (string, error) {
 	if !n.ExpiresAt.After(t.now) {
 		return "", fmt.Errorf("%w: session already expired", ErrInvalidInput)
 	}
+	if n.ExpiresAt.After(t.now.Add(MaxSessionLifetime)) {
+		return "", fmt.Errorf("%w: session lifetime over %v", ErrInvalidInput, MaxSessionLifetime)
+	}
 	if len(n.ClientIP) < 1 || len(n.ClientIP) > 45 {
 		return "", fmt.Errorf("%w: invalid client IP", ErrInvalidInput)
 	}
@@ -145,6 +152,20 @@ func (t *Tx) CreateSession(ctx context.Context, n NewSession) (string, error) {
 		return "", fmt.Errorf("insert session: %w", err)
 	}
 	return id, nil
+}
+
+// PurgeSessions deletes every session, in every tenant, that is past its
+// absolute expiry or idle for 12 hours or more, by the database's clock
+// (I4). Expired sessions are already refused and deleted when their
+// cookie comes back; this removes the ones whose browser never returns.
+// It goes through the database function, which runs as the owner and can
+// do nothing else. It returns how many it deleted.
+func (s *Store) PurgeSessions(ctx context.Context) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx, `SELECT waystone.purge_sessions()`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("purge sessions: %w", err)
+	}
+	return n, nil
 }
 
 // CleanUserAgent makes a client's User-Agent safe to store and show: an

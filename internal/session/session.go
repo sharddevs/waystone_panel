@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/sharddevs/waystone_panel/internal/password"
@@ -26,7 +27,7 @@ import (
 // The session rules (Q7).
 const (
 	IdleTimeout     = 12 * time.Hour
-	AbsoluteTimeout = 7 * 24 * time.Hour
+	AbsoluteTimeout = store.MaxSessionLifetime
 	// touchEvery: last_seen_at is written at most this often per session,
 	// so a page polling every 5 s doesn't write on every request.
 	touchEvery = time.Minute
@@ -40,8 +41,32 @@ const (
 	limitPerIP   = 20
 )
 
-// maxHashes is how many password hashes may run at once (64 MiB each).
-const maxHashes = 2
+// Password hashing is the expensive part of a sign-in (64 MiB each), so
+// it is bounded three ways (A2): at most maxHashes run at once, at most
+// maxHashWaiters sign-ins may be hashing or waiting to, and none waits
+// longer than hashWait. Past either bound the answer is 503
+// controller_busy straight away, instead of a queue that grows until real
+// sign-ins time out behind it.
+const (
+	maxHashes      = 2
+	maxHashWaiters = 32
+	hashWait       = 5 * time.Second
+	// auditTimeout bounds a failed sign-in's audit write, which runs after
+	// the response has gone (A3).
+	auditTimeout = 10 * time.Second
+)
+
+// maxLookups is how many session lookups may run at once. Any request
+// with a well-formed cookie costs one before anything else bounds it, so
+// past this the answer is 503 at once instead of a queue for the
+// database pool (5b audit note).
+const maxLookups = 32
+
+// errLookupBusy: too many session lookups are already running.
+var errLookupBusy = errors.New("session: too many session lookups in progress")
+
+// errHashBusy: too many sign-ins are already hashing or waiting.
+var errHashBusy = errors.New("session: too many sign-ins in progress")
 
 // Store is what the manager needs from internal/store; *store.Store is
 // the real one.
@@ -68,7 +93,11 @@ type Manager struct {
 	now     func() time.Time
 	log     *log.Logger
 	limits  *limiter
-	hashing chan struct{}
+	hashing chan struct{} // a slot per running hash
+	waiting chan struct{} // a slot per sign-in hashing or waiting to
+	wait    time.Duration // hashWait; tests shorten it
+	lookups chan struct{} // a slot per running ResolveSession
+	audits  sync.WaitGroup
 	// decoy is a real hash of a random password: an unknown username is
 	// verified against it, so it costs what a known one does.
 	decoy string
@@ -103,6 +132,9 @@ func New(cfg Config) (*Manager, error) {
 		log:     cfg.Log,
 		limits:  newLimiter(limitWindow),
 		hashing: make(chan struct{}, maxHashes),
+		waiting: make(chan struct{}, maxHashWaiters),
+		wait:    hashWait,
+		lookups: make(chan struct{}, maxLookups),
 		decoy:   decoy,
 	}, nil
 }
@@ -111,8 +143,15 @@ func New(cfg Config) (*Manager, error) {
 // session exists, its account isn't disabled (session_lookup), it hasn't
 // passed its absolute expiry, and it was used within IdleTimeout. An
 // expired session is deleted on the way. A live one is touched, at most
-// once a minute.
+// once a minute. At most maxLookups run at once; one more is
+// errLookupBusy, which web answers with 503.
 func (m *Manager) ResolveSession(ctx context.Context, token string) (web.Session, error) {
+	select {
+	case m.lookups <- struct{}{}:
+	default:
+		return web.Session{}, errLookupBusy
+	}
+	defer func() { <-m.lookups }()
 	rec, err := m.store.LookupSession(ctx, hashToken(token))
 	if errors.Is(err, store.ErrNotFound) {
 		return web.Session{}, web.ErrNoSession
@@ -150,16 +189,31 @@ func (m *Manager) ResolveSession(ctx context.Context, token string) (web.Session
 }
 
 // verify checks pw against phc, at most maxHashes at once. It waits for
-// a slot as long as ctx allows.
+// a slot at most hashWait, and only if fewer than maxHashWaiters are
+// already in line; otherwise it's errHashBusy.
 func (m *Manager) verify(ctx context.Context, pw, phc string) (bool, error) {
 	select {
+	case m.waiting <- struct{}{}:
+	default:
+		return false, errHashBusy
+	}
+	defer func() { <-m.waiting }()
+	t := time.NewTimer(m.wait)
+	defer t.Stop()
+	select {
 	case m.hashing <- struct{}{}:
+	case <-t.C:
+		return false, errHashBusy
 	case <-ctx.Done():
 		return false, ctx.Err()
 	}
 	defer func() { <-m.hashing }()
 	return password.Verify(pw, phc)
 }
+
+// Wait waits for the audit writes still running after their responses.
+// The controller calls it on the way out.
+func (m *Manager) Wait() { m.audits.Wait() }
 
 // newToken is 32 random bytes in unpadded base64url: a session token or a
 // CSRF token, web.TokenLength characters.
