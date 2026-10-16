@@ -54,12 +54,16 @@ func infoFrom(ctx context.Context) (requestInfo, bool) {
 
 // ClientIP is the browser's address as the trusted proxy reported it. It
 // is metadata for logs and audit records, and the key of the sign-in rate
-// limit, which is its one allowed security use: the guard has already
-// checked that the proxy is the trusted one, and a wrong address there
-// only moves an attempt to another bucket. Never use it to identify or
-// authorize anyone (W3).
-func ClientIP(r *http.Request) (netip.Addr, bool) {
-	ri, ok := infoFrom(r.Context())
+// limit and the per-address cap on session lookups, its only allowed
+// security uses: the guard has already checked that the proxy is the
+// trusted one, and a wrong address there only moves a request to another
+// bucket. Never use it to identify or authorize anyone (W3).
+func ClientIP(r *http.Request) (netip.Addr, bool) { return ClientIPFrom(r.Context()) }
+
+// ClientIPFrom is ClientIP for code that only has the request's context,
+// such as a SessionResolver. The same rules apply.
+func ClientIPFrom(ctx context.Context) (netip.Addr, bool) {
+	ri, ok := infoFrom(ctx)
 	if !ok {
 		return netip.Addr{}, false
 	}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package api
+package service
 
 import (
 	"net/http"
@@ -10,8 +10,9 @@ import (
 
 // The I12 limits.
 const (
-	// MaxConcurrent is how many requests may run at once. One more gets
-	// 503 controller_busy straight away instead of waiting in a queue.
+	// MaxConcurrent is how many requests may run at once on one socket.
+	// One more gets 503 controller_busy straight away instead of waiting
+	// in a queue.
 	MaxConcurrent = 32
 	// RateLimit POSTs per actor per RateWindow; the next one gets 429.
 	RateLimit  = 30
@@ -78,16 +79,20 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 	return true
 }
 
-// limitConcurrency lets at most n requests run through next at the same
-// time. A request that finds all n slots taken gets busy straight away,
-// without waiting: under load, failing fast is kinder than piling up.
-//
-// TODO: a buffered channel of size n as the semaphore; a select with a
-// default case to try to take a slot without blocking; release the slot
-// when next returns (defer).
-func limitConcurrency(n int, busy http.Handler, next http.Handler) http.Handler {
-	slots := make(chan struct{}, n)
+// Slots is one socket's pool of request slots (see LimitConcurrency).
+type Slots struct{ c chan struct{} }
 
+// NewSlots returns a pool of n slots.
+func NewSlots(n int) *Slots { return &Slots{c: make(chan struct{}, n)} }
+
+// limitConcurrency lets at most cap(slots) requests run through next at
+// the same time. A request that finds every slot taken gets busy straight
+// away, without waiting: under load, failing fast is kinder than piling
+// up.
+//
+// slots is a buffered channel used as the semaphore; requests sharing it
+// share the limit.
+func limitConcurrency(slots chan struct{}, busy http.Handler, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case slots <- struct{}{}:

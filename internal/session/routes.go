@@ -122,10 +122,10 @@ func (m *Manager) signIn(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	// A success clears the username's count and doesn't count against
-	// the address.
-	m.limits.reset(userKey)
-	m.limits.refund(now, ipKey)
+	// A success takes back only its own attempt. It doesn't clear the
+	// username's other attempts: guesses racing the real user's sign-in
+	// stay counted (VM review of audit fix 1).
+	m.limits.refund(now, ipKey, userKey)
 
 	// A sign-in always makes a new session (no fixation). The one the
 	// browser came with, if any, is ended.

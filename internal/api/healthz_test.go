@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/sharddevs/waystone_panel/internal/service"
 )
 
 // /healthz needs no identity and no database, so a Config without a
@@ -101,8 +103,8 @@ func decodeError(t *testing.T, rec *httptest.ResponseRecorder) errorJSON {
 	if e.Code == "" || e.Message == "" || e.RequestID == "" {
 		t.Errorf("error body missing code, message or request_id: %q", rec.Body.String())
 	}
-	if info, ok := errorInfo[e.Code]; ok && (info.message != e.Message || info.status != rec.Code) {
-		t.Errorf("code %s: got %d %q, want the fixed %d %q", e.Code, rec.Code, e.Message, info.status, info.message)
+	if status, message, ok := service.ErrorStatus(e.Code); ok && (message != e.Message || status != rec.Code) {
+		t.Errorf("code %s: got %d %q, want the fixed %d %q", e.Code, rec.Code, e.Message, status, message)
 	}
 	return e
 }

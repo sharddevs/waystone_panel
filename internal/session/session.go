@@ -24,7 +24,9 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/web"
 )
 
-// The session rules (Q7).
+// The session rules (Q7). Migration 00007 repeats both in SQL:
+// purge_sessions uses '12 hours' and the sessions CHECK '168 hours', so
+// change them together.
 const (
 	IdleTimeout     = 12 * time.Hour
 	AbsoluteTimeout = store.MaxSessionLifetime
@@ -62,6 +64,11 @@ const (
 // database pool (5b audit note).
 const maxLookups = 32
 
+// maxLookupsPerAddr is how many of those may come from one address (by
+// addrKey) at once, so one client flooding random cookies can't take
+// every slot and lock signed-in users out (audit N1).
+const maxLookupsPerAddr = 8
+
 // errLookupBusy: too many session lookups are already running.
 var errLookupBusy = errors.New("session: too many session lookups in progress")
 
@@ -97,6 +104,7 @@ type Manager struct {
 	waiting chan struct{} // a slot per sign-in hashing or waiting to
 	wait    time.Duration // hashWait; tests shorten it
 	lookups chan struct{} // a slot per running ResolveSession
+	perAddr inflight      // running ResolveSessions per address
 	audits  sync.WaitGroup
 	// decoy is a real hash of a random password: an unknown username is
 	// verified against it, so it costs what a known one does.
@@ -135,6 +143,7 @@ func New(cfg Config) (*Manager, error) {
 		waiting: make(chan struct{}, maxHashWaiters),
 		wait:    hashWait,
 		lookups: make(chan struct{}, maxLookups),
+		perAddr: inflight{n: map[string]int{}},
 		decoy:   decoy,
 	}, nil
 }
@@ -143,9 +152,18 @@ func New(cfg Config) (*Manager, error) {
 // session exists, its account isn't disabled (session_lookup), it hasn't
 // passed its absolute expiry, and it was used within IdleTimeout. An
 // expired session is deleted on the way. A live one is touched, at most
-// once a minute. At most maxLookups run at once; one more is
-// errLookupBusy, which web answers with 503.
+// once a minute. At most maxLookups run at once, and at most
+// maxLookupsPerAddr from one address; one more is errLookupBusy, which
+// web answers with 503.
 func (m *Manager) ResolveSession(ctx context.Context, token string) (web.Session, error) {
+	key := "ip:-"
+	if ip, ok := web.ClientIPFrom(ctx); ok {
+		key = addrKey(ip)
+	}
+	if !m.perAddr.acquire(key, maxLookupsPerAddr) {
+		return web.Session{}, errLookupBusy
+	}
+	defer m.perAddr.release(key)
 	select {
 	case m.lookups <- struct{}{}:
 	default:
@@ -214,6 +232,33 @@ func (m *Manager) verify(ctx context.Context, pw, phc string) (bool, error) {
 // Wait waits for the audit writes still running after their responses.
 // The controller calls it on the way out.
 func (m *Manager) Wait() { m.audits.Wait() }
+
+// inflight counts running requests per key.
+type inflight struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+// acquire takes one of max places for key, or reports false at once.
+func (f *inflight) acquire(key string, max int) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.n[key] >= max {
+		return false
+	}
+	f.n[key]++
+	return true
+}
+
+// release gives back a place acquire took. A key with none left is
+// dropped, so the map only holds addresses with requests running.
+func (f *inflight) release(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.n[key]--; f.n[key] <= 0 {
+		delete(f.n, key)
+	}
+}
 
 // newToken is 32 random bytes in unpadded base64url: a session token or a
 // CSRF token, web.TokenLength characters.

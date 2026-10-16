@@ -235,6 +235,8 @@ func TestUncertainBlocksUntilResolved(t *testing.T) {
 		{first.ID, StateUncertain, ""},
 		{first.ID, StateFailed, strings.Repeat("n", 501)},
 		{first.ID, StateFailed, "\xff"},
+		{first.ID, StateFailed, "ok\x1b[2Jcleared"},
+		{first.ID, StateFailed, "stopped \u202edeppots"},
 		{"not-a-uuid", StateFailed, ""},
 	} {
 		if _, err := resolve(bad.id, bad.outcome, bad.note); !errors.Is(err, ErrInvalidInput) {
@@ -246,7 +248,7 @@ func TestUncertainBlocksUntilResolved(t *testing.T) {
 	}
 
 	e.clock.Advance(time.Hour)
-	op, err := resolve(first.ID, StateFailed, "checked by hand: server was stopped")
+	op, err := resolve(first.ID, StateFailed, "checked by hand:\nserver was stopped")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -254,7 +256,7 @@ func TestUncertainBlocksUntilResolved(t *testing.T) {
 		t.Fatalf("after resolve: state %s, resolution %+v; want uncertain with a resolution", op.State, op.Resolution)
 	}
 	r := *op.Resolution
-	if r.Outcome != StateFailed || r.By != adminA || !r.At.Equal(e.clock.now) || r.Note != "checked by hand: server was stopped" {
+	if r.Outcome != StateFailed || r.By != adminA || !r.At.Equal(e.clock.now) || r.Note != "checked by hand:\nserver was stopped" {
 		t.Errorf("resolution = %+v", r)
 	}
 	if _, err := resolve(first.ID, StateSucceeded, ""); !errors.Is(err, ErrAlreadyResolved) {

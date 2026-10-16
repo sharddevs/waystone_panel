@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/sharddevs/waystone_panel/internal/password"
+	"github.com/sharddevs/waystone_panel/internal/service"
 	"github.com/sharddevs/waystone_panel/internal/session"
 	"github.com/sharddevs/waystone_panel/internal/store"
 	"github.com/sharddevs/waystone_panel/internal/web"
@@ -29,28 +30,49 @@ func TestWebRoutesCovered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := web.New(web.Config{Public: o, ProxyUID: 4242, Log: log.New(io.Discard, "", 0), Sessions: sessions}, webRoutes(sessions)...)
+	// The service has no store: the coverage requests stop at the guard or
+	// the session check.
+	svc := service.New(service.Config{Log: log.New(io.Discard, "", 0)})
+	h, err := web.New(web.Config{Public: o, ProxyUID: 4242, Log: log.New(io.Discard, "", 0), Sessions: sessions}, webRoutes(sessions, svc)...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := web.RouteCoverage(h); err != nil {
 		t.Fatal(err)
 	}
-	// The four session routes, with the CSRF policy each must have.
-	want := map[string]web.CSRFPolicy{
-		"POST /api/v1/session":              web.CSRFPreSession,
-		"GET /api/v1/session":               web.CSRFNotApplicable,
-		"DELETE /api/v1/session":            web.CSRFRequired,
-		"PATCH /api/v1/session/preferences": web.CSRFRequired,
+	// Every route, with the CSRF policy it must have and whether it needs
+	// a session: the four session routes (5a-2) and the browser API (5b,
+	// scope §5). Nothing else may be on web.sock.
+	type policy struct {
+		csrf    web.CSRFPolicy
+		session bool
+	}
+	want := map[string]policy{
+		"GET /healthz":                         {web.CSRFNotApplicable, false},
+		"POST /api/v1/session":                 {web.CSRFPreSession, false},
+		"GET /api/v1/session":                  {web.CSRFNotApplicable, true},
+		"DELETE /api/v1/session":               {web.CSRFRequired, true},
+		"PATCH /api/v1/session/preferences":    {web.CSRFRequired, true},
+		"GET /api/v1/servers":                  {web.CSRFNotApplicable, true},
+		"GET /api/v1/servers/{id}":             {web.CSRFNotApplicable, true},
+		"POST /api/v1/servers/{id}/start":      {web.CSRFRequired, true},
+		"POST /api/v1/servers/{id}/stop":       {web.CSRFRequired, true},
+		"POST /api/v1/servers/{id}/restart":    {web.CSRFRequired, true},
+		"GET /api/v1/operations":               {web.CSRFNotApplicable, true},
+		"GET /api/v1/operations/{id}":          {web.CSRFNotApplicable, true},
+		"POST /api/v1/operations/{id}/resolve": {web.CSRFRequired, true},
 	}
 	for _, rt := range h.Routes() {
 		key := rt.Method + " " + rt.Pattern
-		if p, ok := want[key]; ok {
-			if rt.CSRF != p {
-				t.Errorf("%s: CSRF %v, want %v", key, rt.CSRF, p)
-			}
-			delete(want, key)
+		p, ok := want[key]
+		if !ok {
+			t.Errorf("unexpected route %s", key)
+			continue
 		}
+		if rt.CSRF != p.csrf || rt.Session != p.session {
+			t.Errorf("%s: CSRF %v session %v, want %v %v", key, rt.CSRF, rt.Session, p.csrf, p.session)
+		}
+		delete(want, key)
 	}
 	for k := range want {
 		t.Errorf("route %s missing", k)

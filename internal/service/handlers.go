@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package api
+package service
 
 import (
 	"context"
@@ -30,13 +30,13 @@ const dbTimeout = 10 * time.Second
 // defaultListLimit is how many operations a list returns without ?limit=.
 const defaultListLimit = 50
 
-// actionRequest is the body of start, stop and restart. It has no fields:
+// ActionRequest is the body of start, stop and restart. It has no fields:
 // the only valid body is {} (or none at all). It still exists so unknown
 // fields are refused and so the fingerprint has a canonical body.
-type actionRequest struct{}
+type ActionRequest struct{}
 
-// resolveRequest is the body of POST /operations/{id}/resolve.
-type resolveRequest struct {
+// ResolveRequest is the body of POST /operations/{id}/resolve.
+type ResolveRequest struct {
 	Outcome string `json:"outcome"`
 	Note    string `json:"note"`
 }
@@ -62,7 +62,7 @@ func permits(role string) func(store.Action) bool {
 // If the role isn't allowed, run records the denial (store.Denial with
 // reason "forbidden", the request ID, resourceType and resourceID), lets
 // the transaction COMMIT so the audit row stays, and then returns a
-// forbidden *apiError. Careful: returning an error from the InTenantTx
+// forbidden *Error. Careful: returning an error from the InTenantTx
 // callback would roll the audit row back too. So the callback records the
 // denial, sets a flag and returns nil; run checks the flag afterwards.
 //
@@ -81,7 +81,7 @@ func permits(role string) func(store.Action) bool {
 // the caller passes it through errorFor.
 //
 // TODO: implement as described.
-func (a *API) run(r *http.Request, action, resourceType, resourceID string, fn func(ctx context.Context, tx *store.Tx) error) error {
+func (s *Service) run(r *http.Request, action, resourceType, resourceID string, fn func(ctx context.Context, tx *store.Tx) error) error {
 	actor, ok := actorFrom(r.Context())
 	if !ok {
 		return newError(CodeInternal, errors.New("missing actor"))
@@ -92,7 +92,7 @@ func (a *API) run(r *http.Request, action, resourceType, resourceID string, fn f
 
 	denied := false
 
-	err := a.store.InTenantTx(ctx, actor, func(ctx context.Context, tx *store.Tx) error {
+	err := s.store.InTenantTx(ctx, actor, func(ctx context.Context, tx *store.Tx) error {
 		if !authorize(tx.Role(), action) {
 			err := tx.RecordDenial(ctx, store.Denial{
 				Action:       action,
@@ -118,7 +118,7 @@ func (a *API) run(r *http.Request, action, resourceType, resourceID string, fn f
 			reason = "ambiguous_membership"
 		}
 
-		a.logf(
+		s.logf(
 			"security_event=denied request_id=%s actor=%s:%s action=%s resource=%s:%s reason=%s",
 			requestIDFrom(r.Context()),
 			actor.Type,
@@ -146,28 +146,28 @@ func (a *API) run(r *http.Request, action, resourceType, resourceID string, fn f
 // involved.
 //
 // TODO
-func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleListServers(w http.ResponseWriter, r *http.Request) {
 	if err := checkQuery(r); err != nil {
-		a.writeError(w, r, err)
+		s.writeError(w, r, err)
 		return
 	}
 
 	var servers []store.Server
 	var role string
 
-	err := a.run(r, actionServerList, "server", "*", func(ctx context.Context, tx *store.Tx) error {
+	err := s.run(r, actionServerList, "server", "*", func(ctx context.Context, tx *store.Tx) error {
 		var err error
 		role = tx.Role()
 		servers, err = tx.ListServers(ctx)
 		return err
 	})
 	if err != nil {
-		a.writeError(w, r, errorFor(err))
+		s.writeError(w, r, errorFor(err))
 		return
 	}
 
-	result := make([]serverJSON, 0, len(servers))
-	now := a.now()
+	result := make([]view.Server, 0, len(servers))
+	now := s.now()
 
 	for _, server := range servers {
 		result = append(result, view.ServerOf(server, permits(role), now))
@@ -181,34 +181,34 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 // handleGetServer: GET /api/v1/servers/{id} → 200 with the server, in the
 // same shape as the list (A2). A bad ID is bad_request before run; a
 // server in another tenant is not_found, the same as a missing one.
-func (a *API) handleGetServer(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleGetServer(w http.ResponseWriter, r *http.Request) {
 	if err := checkQuery(r); err != nil {
-		a.writeError(w, r, err)
+		s.writeError(w, r, err)
 		return
 	}
 
 	id := r.PathValue("id")
 
 	if err := ids.Check(id); err != nil {
-		a.writeError(w, r, newError(CodeBadRequest, err))
+		s.writeError(w, r, newError(CodeBadRequest, err))
 		return
 	}
 
 	var server store.Server
 	var role string
 
-	err := a.run(r, actionServerRead, "server", id, func(ctx context.Context, tx *store.Tx) error {
+	err := s.run(r, actionServerRead, "server", id, func(ctx context.Context, tx *store.Tx) error {
 		var err error
 		role = tx.Role()
 		server, err = tx.GetServer(ctx, id)
 		return err
 	})
 	if err != nil {
-		a.writeError(w, r, errorFor(err))
+		s.writeError(w, r, errorFor(err))
 		return
 	}
 
-	writeJSON(w, http.StatusOK, view.ServerOf(server, permits(role), a.now()))
+	writeJSON(w, http.StatusOK, view.ServerOf(server, permits(role), s.now()))
 }
 
 // handleAction returns the handler for POST route, which creates an
@@ -216,7 +216,7 @@ func (a *API) handleGetServer(w http.ResponseWriter, r *http.Request) {
 //
 //  1. {id} must pass ids.Check, else bad_request. (Check it before run,
 //     so only a real UUID can end up in an audit row.)
-//  2. decodeJSON into an actionRequest.
+//  2. decodeJSON into an ActionRequest.
 //  3. An Idempotency-Key header, if present, must pass
 //     store.ValidIdempotencyKey, else invalid_idempotency_key.
 //  4. Fingerprint(r.Method, route, id, the decoded body).
@@ -227,44 +227,44 @@ func (a *API) handleGetServer(w http.ResponseWriter, r *http.Request) {
 //     request): 200 with the operation as it is now, and no OnOperation.
 //
 // TODO
-func (a *API) handleAction(action store.Action, route string) http.HandlerFunc {
+func (s *Service) handleAction(action store.Action, route string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := checkQuery(r); err != nil {
-			a.writeError(w, r, err)
+			s.writeError(w, r, err)
 			return
 		}
 
 		id := r.PathValue("id")
 
 		if err := ids.Check(id); err != nil {
-			a.writeError(w, r, newError(CodeBadRequest, err))
+			s.writeError(w, r, newError(CodeBadRequest, err))
 			return
 		}
 
-		var body actionRequest
+		var body ActionRequest
 
 		if err := decodeJSON(w, r, &body); err != nil {
-			a.writeError(w, r, err)
+			s.writeError(w, r, err)
 			return
 		}
 
 		key := r.Header.Get("Idempotency-Key")
 
 		if key != "" && !store.ValidIdempotencyKey(key) {
-			a.writeError(w, r, newError(CodeInvalidIdempotencyKey, nil))
+			s.writeError(w, r, newError(CodeInvalidIdempotencyKey, nil))
 			return
 		}
 
 		fingerprint, err := Fingerprint(r.Method, route, id, body)
 		if err != nil {
-			a.writeError(w, r, newError(CodeInternal, err))
+			s.writeError(w, r, newError(CodeInternal, err))
 			return
 		}
 
 		var operation store.Operation
 		var replayed bool
 
-		err = a.run(r, string(action), "server", id, func(ctx context.Context, tx *store.Tx) error {
+		err = s.run(r, string(action), "server", id, func(ctx context.Context, tx *store.Tx) error {
 			var err error
 
 			operation, replayed, err = tx.CreateOperation(ctx, store.CreateOperationInput{
@@ -277,7 +277,7 @@ func (a *API) handleAction(action store.Action, route string) http.HandlerFunc {
 			return err
 		})
 		if err != nil {
-			a.writeError(w, r, errorFor(err))
+			s.writeError(w, r, errorFor(err))
 			return
 		}
 
@@ -288,8 +288,8 @@ func (a *API) handleAction(action store.Action, route string) http.HandlerFunc {
 		} else {
 			w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
 			// Committed by now, so the agent's claim can see it.
-			if a.onOperation != nil {
-				a.onOperation(operation)
+			if s.onOperation != nil {
+				s.onOperation(operation)
 			}
 		}
 
@@ -306,9 +306,9 @@ func (a *API) handleAction(action store.Action, route string) http.HandlerFunc {
 // is bad_request too (V4).
 //
 // TODO
-func (a *API) handleListOperations(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleListOperations(w http.ResponseWriter, r *http.Request) {
 	if err := checkQuery(r, "server_id", "limit"); err != nil {
-		a.writeError(w, r, err)
+		s.writeError(w, r, err)
 		return
 	}
 
@@ -316,7 +316,7 @@ func (a *API) handleListOperations(w http.ResponseWriter, r *http.Request) {
 
 	if serverID != "" {
 		if err := ids.Check(serverID); err != nil {
-			a.writeError(w, r, newError(CodeBadRequest, err))
+			s.writeError(w, r, newError(CodeBadRequest, err))
 			return
 		}
 	}
@@ -326,7 +326,7 @@ func (a *API) handleListOperations(w http.ResponseWriter, r *http.Request) {
 	if value := r.URL.Query().Get("limit"); value != "" {
 		n, err := strconv.Atoi(value)
 		if err != nil || n < 1 || n > store.MaxListLimit {
-			a.writeError(w, r, newError(CodeBadRequest, nil))
+			s.writeError(w, r, newError(CodeBadRequest, nil))
 			return
 		}
 		limit = n
@@ -337,17 +337,17 @@ func (a *API) handleListOperations(w http.ResponseWriter, r *http.Request) {
 	if serverID != "" {
 		resourceID = serverID
 	}
-	err := a.run(r, actionOperationList, "server", resourceID, func(ctx context.Context, tx *store.Tx) error {
+	err := s.run(r, actionOperationList, "server", resourceID, func(ctx context.Context, tx *store.Tx) error {
 		var err error
 		operations, err = tx.ListOperations(ctx, serverID, limit)
 		return err
 	})
 	if err != nil {
-		a.writeError(w, r, errorFor(err))
+		s.writeError(w, r, errorFor(err))
 		return
 	}
 
-	result := make([]operationJSON, 0, len(operations))
+	result := make([]view.Operation, 0, len(operations))
 
 	for _, operation := range operations {
 		result = append(result, view.OperationOf(operation))
@@ -363,28 +363,28 @@ func (a *API) handleListOperations(w http.ResponseWriter, r *http.Request) {
 // the same as a missing one.
 //
 // TODO
-func (a *API) handleGetOperation(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleGetOperation(w http.ResponseWriter, r *http.Request) {
 	if err := checkQuery(r); err != nil {
-		a.writeError(w, r, err)
+		s.writeError(w, r, err)
 		return
 	}
 
 	id := r.PathValue("id")
 
 	if err := ids.Check(id); err != nil {
-		a.writeError(w, r, newError(CodeBadRequest, err))
+		s.writeError(w, r, newError(CodeBadRequest, err))
 		return
 	}
 
 	var operation store.Operation
 
-	err := a.run(r, actionOperationRead, "operation", id, func(ctx context.Context, tx *store.Tx) error {
+	err := s.run(r, actionOperationRead, "operation", id, func(ctx context.Context, tx *store.Tx) error {
 		var err error
 		operation, err = tx.GetOperation(ctx, id)
 		return err
 	})
 	if err != nil {
-		a.writeError(w, r, errorFor(err))
+		s.writeError(w, r, errorFor(err))
 		return
 	}
 
@@ -392,53 +392,47 @@ func (a *API) handleGetOperation(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleResolve: POST /api/v1/operations/{id}/resolve with a
-// resolveRequest → 200 with the updated operation (decision O). The store
+// ResolveRequest → 200 with the updated operation (decision O). The store
 // checks the outcome and note and the operation's state; this handler
 // only validates the ID, decodes the body and maps the errors.
 //
 // TODO
-func (a *API) handleResolve(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleResolve(w http.ResponseWriter, r *http.Request) {
 	if err := checkQuery(r); err != nil {
-		a.writeError(w, r, err)
+		s.writeError(w, r, err)
 		return
 	}
 
 	id := r.PathValue("id")
 
 	if err := ids.Check(id); err != nil {
-		a.writeError(w, r, newError(CodeBadRequest, err))
+		s.writeError(w, r, newError(CodeBadRequest, err))
 		return
 	}
 
-	var body resolveRequest
+	var body ResolveRequest
 
 	if err := decodeJSON(w, r, &body); err != nil {
-		a.writeError(w, r, err)
+		s.writeError(w, r, err)
 		return
 	}
 
 	if body.Outcome == "" {
-		a.writeError(w, r, newError(CodeBadRequest, nil))
+		s.writeError(w, r, newError(CodeBadRequest, nil))
 		return
 	}
 
 	var operation store.Operation
 
-	err := a.run(r, actionOperationResolve, "operation", id, func(ctx context.Context, tx *store.Tx) error {
+	err := s.run(r, actionOperationResolve, "operation", id, func(ctx context.Context, tx *store.Tx) error {
 		var err error
 		operation, err = tx.ResolveOperation(ctx, id, store.OperationState(body.Outcome), body.Note)
 		return err
 	})
 	if err != nil {
-		a.writeError(w, r, errorFor(err))
+		s.writeError(w, r, errorFor(err))
 		return
 	}
 
 	writeJSON(w, http.StatusOK, view.OperationOf(operation))
-}
-
-// handleNotFound answers every path (and method) no route matches, so
-// that even those errors have the usual JSON shape.
-func (a *API) handleNotFound(w http.ResponseWriter, r *http.Request) {
-	a.writeError(w, r, newError(CodeNotFound, nil))
 }

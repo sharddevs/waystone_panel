@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -488,8 +489,8 @@ func (t *Tx) GetOperation(ctx context.Context, id string) (Operation, error) {
 // that the system itself never found out. The decision, who made it, when,
 // and an optional note go into the resolved_* columns.
 //
-// A bad ID, an outcome other than succeeded or failed, or a note over 500
-// bytes or not valid UTF-8 is ErrInvalidInput. A missing operation is
+// A bad ID, an outcome other than succeeded or failed, or a note that
+// validNote refuses is ErrInvalidInput. A missing operation is
 // ErrNotFound, one that isn't uncertain is ErrNotUncertain, and one that
 // is already resolved is ErrAlreadyResolved.
 //
@@ -505,7 +506,7 @@ func (t *Tx) ResolveOperation(ctx context.Context, id string, outcome OperationS
 	if outcome != StateSucceeded && outcome != StateFailed {
 		return Operation{}, fmt.Errorf("%w: invalid resolution outcome", ErrInvalidInput)
 	}
-	if len(note) > 500 || !utf8.ValidString(note) {
+	if !validNote(note) {
 		return Operation{}, fmt.Errorf("%w: invalid resolution note", ErrInvalidInput)
 	}
 	// Lock the row first, so two people resolving at the same moment can't
@@ -563,4 +564,22 @@ func (t *Tx) ResolveOperation(ctx context.Context, id string, outcome OperationS
 	}
 
 	return t.GetOperation(ctx, id)
+}
+
+// validNote reports whether note may be a resolution note: at most 500
+// bytes of valid UTF-8, with no control character but newline and no
+// bidirectional formatting character (U+061C, U+200E-U+200F,
+// U+202A-U+202E, U+2066-U+2069). Every admin reads these notes in the
+// operation history, so one mustn't be able to reorder or hide what it
+// shows (5b audit H2), the same idea as the rule for actor names.
+func validNote(note string) bool {
+	if len(note) > 500 || !utf8.ValidString(note) {
+		return false
+	}
+	for _, r := range note {
+		if (unicode.IsControl(r) && r != '\n') || unicode.Is(unicode.Bidi_Control, r) {
+			return false
+		}
+	}
+	return true
 }

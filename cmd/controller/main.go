@@ -28,6 +28,7 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/api"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/sdlisten"
+	"github.com/sharddevs/waystone_panel/internal/service"
 	"github.com/sharddevs/waystone_panel/internal/session"
 	"github.com/sharddevs/waystone_panel/internal/store"
 	"github.com/sharddevs/waystone_panel/internal/web"
@@ -293,17 +294,6 @@ func run(args []string, stderr io.Writer) int {
 	}
 	defer db.Close()
 
-	sessions, err := session.New(session.Config{Store: db})
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	webHandler, err := web.New(web.Config{Public: public, ProxyUID: uint32(*proxyUID), HSTSMaxAge: *hstsMaxAge, Sessions: sessions}, webRoutes(sessions)...)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-
 	socks, err := listeners(*socketPath, *webSocket, *agentSocket, os.Getpid(), os.Getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "listener:", err)
@@ -329,16 +319,28 @@ func run(args []string, stderr io.Writer) int {
 		}
 	}
 
-	cfg := api.Config{
-		Version: version,
-		Store:   db,
-	}
+	svcCfg := service.Config{Store: db}
 	if link != nil {
 		// A new operation wakes the agent session at once (Q7), instead
 		// of waiting for its next report.
-		cfg.OnOperation = func(op store.Operation) { link.Kick(op.NodeID) }
+		svcCfg.OnOperation = func(op store.Operation) { link.Kick(op.NodeID) }
 	}
-	handler := api.New(cfg)
+	// One service for both sockets (5b, Q1): the same handlers and one
+	// POST rate limit, per actor. Each socket has its own concurrency
+	// slots, so the browser side can't crowd out api.sock (5b audit H1).
+	svc := service.New(svcCfg)
+	handler := api.New(api.Config{Version: version, Service: svc})
+
+	sessions, err := session.New(session.Config{Store: db})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	webHandler, err := web.New(web.Config{Public: public, ProxyUID: uint32(*proxyUID), HSTSMaxAge: *hstsMaxAge, Sessions: sessions}, webRoutes(sessions, svc)...)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 
 	server := newServer(handler)
 	webServer := webHandler.NewServer(socks.web)

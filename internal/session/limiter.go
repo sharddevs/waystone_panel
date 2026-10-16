@@ -10,8 +10,7 @@ import (
 // limiter counts sign-in attempts per key in a sliding window, in memory.
 // An attempt is counted before its password is checked and taken back
 // if it succeeds or can't be decided, so what stays counted are the
-// failures.
-// The controller is one process, so this is the whole count; a restart
+// failures. The controller is one process, so this is the whole count; a restart
 // forgets it, which only gives an attacker one fresh window.
 type limiter struct {
 	mu       sync.Mutex
@@ -63,8 +62,7 @@ func (l *limiter) attempt(now time.Time, limits ...limit) (counts []int, refused
 }
 
 // refund takes back an attempt recorded at at for each key: the sign-in
-// couldn't be decided (a 503), or it succeeded and shouldn't count
-// against its address.
+// couldn't be decided (a 503), or it succeeded and shouldn't count.
 func (l *limiter) refund(at time.Time, keys ...string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -82,13 +80,6 @@ func (l *limiter) refund(at time.Time, keys ...string) {
 			l.failures[k] = f
 		}
 	}
-}
-
-// reset forgets key's attempts (a successful sign-in for that username).
-func (l *limiter) reset(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.failures, key)
 }
 
 // live drops key's expired failures and returns the rest. Callers hold mu.

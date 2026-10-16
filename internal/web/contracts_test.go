@@ -28,9 +28,10 @@ var identityHeaders = []string{
 // allowedHeaderUses are the reviewed exceptions to C-W3/C-W4, by file
 // (slash-separated, from the repository root) and header. Keep this short.
 var allowedHeaderUses = map[string]string{
-	// The local API's 202 points at the new operation with a relative
-	// Location. It is not a redirect and not built from the request.
-	"internal/api/handlers.go": "location",
+	// The server API's 202, on both sockets, points at the new operation
+	// with a relative Location. It is not a redirect and not built from
+	// the request.
+	"internal/service/handlers.go": "location",
 }
 
 // websocketImports may only be imported inside this package (C-W6).

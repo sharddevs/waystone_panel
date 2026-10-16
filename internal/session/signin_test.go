@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -359,5 +360,116 @@ func TestSessionLookupsCapped(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("with a slot free: %d %s, want 401", w.Code, w.Body.String())
+	}
+}
+
+// slowSessions holds every session lookup until release is closed.
+type slowSessions struct {
+	knownStore
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s slowSessions) LookupSession(context.Context, [32]byte) (store.SessionRecord, error) {
+	s.entered <- struct{}{}
+	<-s.release
+	return store.SessionRecord{}, store.ErrNotFound
+}
+
+// N1: one address holding maxLookupsPerAddr lookups gets 503 for the
+// next, while another address is still looked up.
+func TestSessionLookupsPerAddress(t *testing.T) {
+	st := slowSessions{entered: make(chan struct{}, 20), release: make(chan struct{})}
+	h := signInHandler(t, st)
+	get := func(ip string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/session", nil)
+		r.Host = "panel.example.com"
+		r.Header.Set("X-Forwarded-For", ip)
+		r.Header.Set("X-Forwarded-Proto", "https")
+		r.Header.Set("X-Forwarded-Host", "panel.example.com")
+		r.AddCookie(&http.Cookie{Name: web.SessionCookieName, Value: strings.Repeat("A", web.TokenLength)})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	var wg sync.WaitGroup
+	codes := make(chan int, 20)
+	for i := 0; i < maxLookupsPerAddr; i++ {
+		wg.Add(1)
+		// Different addresses in one /64 are one address here.
+		ip := fmt.Sprintf("2001:db8:1:2::%x", i+1)
+		go func() { defer wg.Done(); codes <- get(ip).Code }()
+		<-st.entered
+	}
+	if w := get("2001:db8:1:2::ff"); w.Code != http.StatusServiceUnavailable {
+		t.Errorf("one more from the same /64: %d, want 503", w.Code)
+	}
+	wg.Add(1)
+	go func() { defer wg.Done(); codes <- get("203.0.113.9").Code }()
+	select {
+	case <-st.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("another address wasn't looked up")
+	}
+	close(st.release)
+	wg.Wait()
+	close(codes)
+	for c := range codes {
+		if c != http.StatusUnauthorized {
+			t.Errorf("a held lookup answered %d, want 401", c)
+		}
+	}
+}
+
+func TestInflight(t *testing.T) {
+	f := inflight{n: map[string]int{}}
+	if !f.acquire("a", 2) || !f.acquire("a", 2) || f.acquire("a", 2) || !f.acquire("b", 2) {
+		t.Fatal("acquire doesn't count per key")
+	}
+	f.release("a")
+	if !f.acquire("a", 2) {
+		t.Error("release didn't give the place back")
+	}
+	f.release("a")
+	f.release("a")
+	f.release("b")
+	if len(f.n) != 0 {
+		t.Errorf("keys left: %v", f.n)
+	}
+}
+
+// A real sign-in succeeding doesn't clear guesses counted against the
+// same username at the same time: only its own attempt is taken back.
+func TestSignInSuccessKeepsOthersAttempts(t *testing.T) {
+	hash, err := password.Hash("right password here", password.Params{Memory: 64, Time: 1, Threads: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(Config{Store: knownStore{store.LoginRecord{UserID: "0199e1a0-0000-7000-8000-0000000000f1", PasswordHash: hash}},
+		Params: password.Params{Memory: 64, Time: 1, Threads: 1}, Now: func() time.Time { return t0 }, Log: log.New(io.Discard, "", 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := web.ParsePublicURL("https://panel.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := web.New(web.Config{Public: o, ProxyUID: 4242, Log: log.New(io.Discard, "", 0), Sessions: m}, m.Routes()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Four guesses from elsewhere, counted (in flight or failed).
+	for i := 0; i < limitPerUser-1; i++ {
+		m.limits.attempt(t0, limit{"ip:198.51.100.9", "per_ip", limitPerIP}, limit{"user:trevor", "per_user", limitPerUser})
+	}
+	b, _ := json.Marshal(map[string]string{"username": "trevor", "password": "right password here"})
+	r := signInRequest("trevor", "203.0.113.7")
+	r.Body = io.NopCloser(strings.NewReader(string(b)))
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	if n := len(m.limits.failures["user:trevor"]); n != limitPerUser-1 {
+		t.Errorf("%d attempts on the username after a success, want the other %d", n, limitPerUser-1)
+	}
+	if _, ok := m.limits.failures["ip:203.0.113.7"]; ok {
+		t.Error("the success counted against its address")
 	}
 }

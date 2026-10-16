@@ -44,10 +44,6 @@ func TestLimiterWindow(t *testing.T) {
 	if _, ok := l.failures["other"]; ok {
 		t.Error("a refused attempt counted against another key")
 	}
-	l.reset("u")
-	if _, refused, _ := l.attempt(t0.Add(15*time.Minute), limit{"u", "per_user", 1}); refused != "" {
-		t.Error("reset didn't forget")
-	}
 	// A key whose attempts all expired is dropped from the map.
 	l.attempt(t0.Add(31*time.Minute), limit{"x", "", 5})
 	if _, ok := l.failures["u"]; !ok {

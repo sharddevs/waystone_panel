@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package api
+package service
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ import (
 const MaxBodyBytes = 64 << 10
 
 // decodeJSON reads r's body into dst, strictly. It returns nil or an
-// *apiError:
+// *Error:
 //
 //   - No body at all (empty) is fine: dst stays as it is. Start, stop and
 //     restart are usually sent without one.
@@ -32,7 +32,7 @@ const MaxBodyBytes = 64 << 10
 // null into a struct). Then decode with a json.Decoder that has
 // DisallowUnknownFields. After the object, a second Decode must return
 // io.EOF, or there was trailing data.
-func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) *apiError {
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) *Error {
 	r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes)
 
 	body, err := io.ReadAll(r.Body)
@@ -82,7 +82,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) *apiError {
 // checkQuery refuses a query string with a parameter not in allowed, or one
 // that doesn't parse, with bad_request (V4). Without this, a typo such as
 // ?serverid= would quietly be ignored and return every operation.
-func checkQuery(r *http.Request, allowed ...string) *apiError {
+func checkQuery(r *http.Request, allowed ...string) *Error {
 	q, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
 		return newError(CodeBadRequest, err)

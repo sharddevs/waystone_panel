@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package api
+package service
 
 import (
 	"encoding/json"
@@ -54,28 +54,38 @@ var errorInfo = map[string]struct {
 	CodeInternal:                   {http.StatusInternalServerError, "Internal error."},
 }
 
-// apiError is an error on its way to the client: a public code, and for a
+// ErrorStatus is the fixed HTTP status and message sent with code, and
+// whether code is one of this package's codes.
+func ErrorStatus(code string) (status int, message string, ok bool) {
+	info, ok := errorInfo[code]
+	return info.status, info.message, ok
+}
+
+// Error is an error on its way to the client: a public code, and for a
 // 409 caused by a blocking operation, that operation's ID. cause is the
 // real reason, which only goes to the log.
-type apiError struct {
+type Error struct {
 	code        string
 	operationID string
 	cause       error
 }
 
-func (e *apiError) Error() string {
+func (e *Error) Error() string {
 	if e.cause != nil {
 		return e.code + ": " + e.cause.Error()
 	}
 	return e.code
 }
 
-func (e *apiError) Unwrap() error { return e.cause }
+func (e *Error) Unwrap() error { return e.cause }
 
-// newError is a shorthand for an apiError without an operation ID.
-func newError(code string, cause error) *apiError {
-	return &apiError{code: code, cause: cause}
+// NewError is an Error without an operation ID, for the socket layers'
+// own refusals (a missing peer, say).
+func NewError(code string, cause error) *Error {
+	return &Error{code: code, cause: cause}
 }
+
+func newError(code string, cause error) *Error { return NewError(code, cause) }
 
 // errorBody is the JSON shape of every error response.
 type errorBody struct {
@@ -87,13 +97,14 @@ type errorBody struct {
 	} `json:"error"`
 }
 
-// writeError sends e to the client and logs its cause under the request
-// ID. An unknown code is sent as "internal", so a typo can't produce a
-// response outside the contract.
-func (a *API) writeError(w http.ResponseWriter, r *http.Request, e *apiError) {
+// writeError sends e to the client and logs its cause under the
+// request's ID. An unknown code is sent as "internal", so a typo can't
+// produce a response outside the contract. Both sockets send every error
+// through here, so they look the same on both (E1).
+func (s *Service) writeError(w http.ResponseWriter, r *http.Request, e *Error) {
 	info, ok := errorInfo[e.code]
 	if !ok {
-		e = &apiError{code: CodeInternal, cause: e}
+		e = &Error{code: CodeInternal, cause: e}
 		info = errorInfo[CodeInternal]
 	}
 	var body errorBody
@@ -103,7 +114,7 @@ func (a *API) writeError(w http.ResponseWriter, r *http.Request, e *apiError) {
 	body.Error.OperationID = e.operationID
 
 	if e.cause != nil || info.status >= 500 {
-		a.logf("request_id=%s error=%s cause=%v", body.Error.RequestID, e.code, e.cause)
+		s.logf("request_id=%s error=%s cause=%v", body.Error.RequestID, e.code, e.cause)
 	}
 	if e.code == CodeRateLimited {
 		w.Header().Set("Retry-After", "60")
@@ -119,7 +130,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // errorFor turns an error from the store (or from this package) into the
-// apiError to send. An *apiError passes through unchanged.
+// Error to send. An *Error passes through unchanged.
 //
 // TODO: map each store error to its code:
 //   - *store.InProgressError: previous_operation_uncertain if its State is
@@ -135,8 +146,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 //
 // Use errors.As and errors.Is, because the store wraps its errors. Keep the
 // original error as cause, so the log shows what really happened.
-func errorFor(err error) *apiError {
-	var apiErr *apiError
+func errorFor(err error) *Error {
+	var apiErr *Error
 	if errors.As(err, &apiErr) {
 		return apiErr
 	}
@@ -148,7 +159,7 @@ func errorFor(err error) *apiError {
 			code = CodePreviousOperationUncertain
 		}
 
-		return &apiError{
+		return &Error{
 			code:        code,
 			operationID: inProgress.OperationID,
 			cause:       err,
