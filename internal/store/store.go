@@ -23,6 +23,7 @@ import (
 const (
 	ActorLocalUser = "local_user" // a Unix user on the API socket; the ID is their uid in decimal
 	ActorNode      = "node"       // an agent; the ID is its node UUID
+	ActorUser      = "user"       // a browser account; the ID is its user UUID (5a-1, C4)
 )
 
 // The roles a membership can have.
@@ -43,6 +44,8 @@ type Actor struct {
 
 // ValidateActor checks that a is well formed before it gets anywhere near
 // the database. Any problem comes back wrapped in ErrInvalidActor.
+//
+// A browser user's ID, like a node's, must be a valid UUID (5a-1).
 //
 // A local user's ID has to be a plain decimal uid that fits in 32 bits:
 // digits only, no sign, and no leading zero, so "1000" and "01000" can't
@@ -83,6 +86,11 @@ func ValidateActor(a Actor) error {
 	case ActorNode:
 		if err := ids.Check(a.ID); err != nil {
 			return fmt.Errorf("%w: invalid node ID: %v", ErrInvalidActor, err)
+		}
+
+	case ActorUser:
+		if err := ids.Check(a.ID); err != nil {
+			return fmt.Errorf("%w: invalid user ID: %v", ErrInvalidActor, err)
 		}
 
 	default:

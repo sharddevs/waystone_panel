@@ -4,7 +4,7 @@
 // HTTP API on a Unix socket, the browser-facing side (behind the proxy) on
 // a second one and, when configured, the agent link on a third. It never
 // opens a TCP port. "controller migrate -db <dsn>" applies the database
-// migrations.
+// migrations, and "controller user ..." manages browser accounts.
 package main
 
 import (
@@ -59,6 +59,11 @@ func main() {
 	// without starting the server.
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		os.Exit(runMigrate(os.Args[2:], os.Stdout, os.Stderr, store.Migrate))
+	}
+	// "user" manages browser accounts as the database owner (5a-1) and
+	// exits, like migrate.
+	if len(os.Args) > 1 && os.Args[1] == "user" {
+		os.Exit(runUser(os.Args[2:], os.Stdout, os.Stderr, realUserDeps()))
 	}
 	os.Exit(run(os.Args[1:], os.Stderr))
 }
