@@ -64,6 +64,7 @@ func TestWebRoutesCovered(t *testing.T) {
 		"POST /api/v1/servers":                  {web.CSRFRequired, true},
 		"POST /api/v1/servers/{id}/install":     {web.CSRFRequired, true},
 		"POST /api/v1/servers/{id}/accept-eula": {web.CSRFRequired, true},
+		"POST /api/v1/servers/{id}/command":     {web.CSRFRequired, true},
 		"GET /api/v1/servers/{id}":              {web.CSRFNotApplicable, true},
 		"GET /api/v1/servers/{id}/logs":         {web.CSRFNotApplicable, true},
 		"POST /api/v1/servers/{id}/start":       {web.CSRFRequired, true},

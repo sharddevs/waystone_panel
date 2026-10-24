@@ -114,7 +114,7 @@ func (c *commands) accept(cmd *agentv1.Command) (known bool, err error) {
 	switch cmd.GetAction() {
 	case agentv1.CommandAction_COMMAND_ACTION_START, agentv1.CommandAction_COMMAND_ACTION_STOP,
 		agentv1.CommandAction_COMMAND_ACTION_RESTART, agentv1.CommandAction_COMMAND_ACTION_INSTALL,
-		agentv1.CommandAction_COMMAND_ACTION_ACCEPT_EULA:
+		agentv1.CommandAction_COMMAND_ACTION_ACCEPT_EULA, agentv1.CommandAction_COMMAND_ACTION_CONSOLE:
 	default:
 		return false, protocolError("command with an unknown action")
 	}
@@ -199,7 +199,7 @@ func (a *Agent) execute(cmd *agentv1.Command, cmds *commands, send func(*agentv1
 		return f(ctx, cmd.GetServerId(), cmd.GetOperationId())
 	}
 	finish := func(err error) {
-		outcome, code := installOutcome(err)
+		outcome, code := consoleOutcome(err)
 		cmds.done(cmd.GetOperationId())
 		if !send(result(cmd.GetEpoch(), cmd.GetOperationId(), outcome, code)) {
 			a.logf("agent=result_dropped op=%s server=%s outcome=%s code=%s reason=session_ended",
@@ -232,5 +232,7 @@ func (a *Agent) execute(cmd *agentv1.Command, cmds *commands, send func(*agentv1
 		finish(a.install(cmd, cmds, send))
 	case agentv1.CommandAction_COMMAND_ACTION_ACCEPT_EULA:
 		finish(a.acceptEula(cmd))
+	case agentv1.CommandAction_COMMAND_ACTION_CONSOLE:
+		finish(a.runConsole(cmd, cmds))
 	}
 }

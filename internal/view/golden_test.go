@@ -106,7 +106,8 @@ func goldenCreated() map[string]any {
 }
 
 // goldenOperations: a restart running in its stopping phase, a failed
-// stop with its error, and an uncertain start that was resolved.
+// stop with its error, an uncertain start that was resolved, and a console
+// command (7b).
 func goldenOperations() []Operation {
 	t0 := time.Date(2026, 10, 16, 11, 30, 2, 0, time.UTC)
 	at := func(d time.Duration) *time.Time { t := t0.Add(d); return &t }
@@ -124,6 +125,10 @@ func goldenOperations() []Operation {
 			NodeID: "0199e1a0-0000-7000-8000-0000000000a2", Action: store.ActionStart, State: store.StateUncertain,
 			Actor: trevor, RequestedAt: t0.Add(-time.Hour), StartedAt: at(-time.Hour),
 			Resolution: &store.Resolution{At: t0.Add(-30 * time.Minute), Outcome: store.StateFailed, By: trevor, Note: "Checked the console;\nit never came up."}}),
+		OperationOf(store.Operation{ID: "0199e1a0-0000-7000-8000-00000000d000", ResourceID: "0199e1a0-0000-7000-8000-000000000a01",
+			NodeID: "0199e1a0-0000-7000-8000-0000000000a1", Action: store.ActionCommand, State: store.StateSucceeded,
+			Actor: trevor, RequestedAt: t0.Add(-2 * time.Hour), StartedAt: at(-2 * time.Hour), FinishedAt: at(-2*time.Hour + 80*time.Millisecond),
+			Command: "say Back in five minutes"}),
 	}
 }
 

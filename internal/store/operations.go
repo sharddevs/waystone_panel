@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/sharddevs/waystone_panel/internal/console"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 )
 
@@ -29,6 +30,9 @@ const (
 	// ActionAcceptEula records a person's acceptance of the Minecraft
 	// EULA (stage 3c: explicit, never inferred).
 	ActionAcceptEula Action = "server.accept_eula"
+	// ActionCommand sends one line to a running server's console (7b).
+	// The line is kept with the operation, and never changes.
+	ActionCommand Action = "server.command"
 )
 
 // OperationState is where an operation is in its life. These are the
@@ -66,6 +70,7 @@ type Operation struct {
 	StartedAt    *time.Time
 	FinishedAt   *time.Time
 	Resolution   *Resolution // nil until someone resolves an uncertain operation
+	Command      string      // the console line of a server.command, "" otherwise
 }
 
 // Resolution is what a person decided about an uncertain operation after
@@ -86,6 +91,9 @@ type CreateOperationInput struct {
 	// how a retry with the same key is told apart from a different request.
 	IdempotencyKey string
 	RequestSHA256  [32]byte
+	// Command is the console line, for ActionCommand only
+	// (console.ValidLine).
+	Command string
 }
 
 // ValidIdempotencyKey reports whether k is 1 to 64 characters from
@@ -117,7 +125,8 @@ const operationColumns = `operation_id::text, tenant_id::text, resource_type, re
 	node_id::text, action, state, coalesce(phase, ''), actor_type, actor_id, actor_name,
 	coalesce(error_code, ''), coalesce(error_summary, ''), requested_at, started_at, finished_at,
 	resolved_at, coalesce(resolved_outcome, ''), coalesce(resolved_by_type, ''),
-	coalesce(resolved_by_id, ''), coalesce(resolved_by_name, ''), coalesce(resolution_note, '')`
+	coalesce(resolved_by_id, ''), coalesce(resolved_by_name, ''), coalesce(resolution_note, ''),
+	coalesce(config->>'command', '')`
 
 // scanOperation reads one row selected with operationColumns. If you
 // change one, change the other to match.
@@ -128,7 +137,7 @@ func scanOperation(row pgx.Row) (Operation, error) {
 	err := row.Scan(&op.ID, &op.TenantID, &op.ResourceType, &op.ResourceID, &op.NodeID,
 		&op.Action, &op.State, &op.Phase, &op.Actor.Type, &op.Actor.ID, &op.Actor.Name,
 		&op.ErrorCode, &op.ErrorSummary, &op.RequestedAt, &op.StartedAt, &op.FinishedAt,
-		&resolvedAt, &outcome, &byType, &byID, &byName, &note)
+		&resolvedAt, &outcome, &byType, &byID, &byName, &note, &op.Command)
 	if err != nil {
 		return Operation{}, err
 	}
@@ -181,10 +190,14 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 	}
 
 	switch in.Action {
-	case ActionStart, ActionStop, ActionRestart, ActionInstall, ActionAcceptEula:
+	case ActionStart, ActionStop, ActionRestart, ActionInstall, ActionAcceptEula, ActionCommand:
 		// One of ours.
 	default:
 		return Operation{}, false, fmt.Errorf("%w: invalid action", ErrInvalidInput)
+	}
+	if (in.Action == ActionCommand) != (in.Command != "") ||
+		(in.Action == ActionCommand && !console.ValidLine(in.Command)) {
+		return Operation{}, false, fmt.Errorf("%w: invalid command", ErrInvalidInput)
 	}
 
 	// No key is fine. A key without a fingerprint is not, because we
@@ -307,9 +320,15 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 		if eulaAccepted {
 			return Operation{}, false, ErrAlreadyAccepted
 		}
+	case ActionCommand:
+		// The last report, however old: the agent asks the helper again
+		// right before it writes (7M1).
+		if processState != "running" {
+			return Operation{}, false, ErrNotRunning
+		}
 	}
 
-	op, err = t.insertOperation(ctx, in.ServerID, nodeID, in.Action)
+	op, err = t.insertOperation(ctx, in.ServerID, nodeID, in.Action, in.Command)
 	if err != nil {
 		return Operation{}, false, err
 	}
@@ -346,7 +365,7 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 // insertOperation is step 5 of CreateOperation: a new pending operation
 // for a server whose row the caller holds locked. node_id is copied from
 // that row, so history keeps the node the request was meant for.
-func (t *Tx) insertOperation(ctx context.Context, serverID, nodeID string, action Action) (Operation, error) {
+func (t *Tx) insertOperation(ctx context.Context, serverID, nodeID string, action Action, command string) (Operation, error) {
 	operationID, err := ids.NewV7()
 	if err != nil {
 		return Operation{}, fmt.Errorf("generate operation ID: %w", err)
@@ -364,11 +383,13 @@ func (t *Tx) insertOperation(ctx context.Context, serverID, nodeID string, actio
         actor_type,
         actor_id,
         actor_name,
-        requested_at
+        requested_at,
+        config
     )
     VALUES (
         $1, $2, 'server', $3, $4, $5, 'pending',
-        $6, $7, $8, $9
+        $6, $7, $8, $9,
+        CASE WHEN $10::text = '' THEN NULL ELSE jsonb_build_object('command', $10::text) END
     )
     RETURNING `+operationColumns,
 		t.TenantID(),
@@ -380,6 +401,7 @@ func (t *Tx) insertOperation(ctx context.Context, serverID, nodeID string, actio
 		t.Actor().ID,
 		t.Actor().Name,
 		t.Now(),
+		command,
 	)
 
 	op, err := scanOperation(row)

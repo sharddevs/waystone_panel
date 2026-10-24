@@ -34,6 +34,7 @@ const (
 	AgentLinkService_Connect_FullMethodName        = "/waystone.agent.v1.AgentLinkService/Connect"
 	AgentLinkService_GetInstallSpec_FullMethodName = "/waystone.agent.v1.AgentLinkService/GetInstallSpec"
 	AgentLinkService_FetchArtifact_FullMethodName  = "/waystone.agent.v1.AgentLinkService/FetchArtifact"
+	AgentLinkService_GetCommandSpec_FullMethodName = "/waystone.agent.v1.AgentLinkService/GetCommandSpec"
 )
 
 // AgentLinkServiceClient is the client API for AgentLinkService service.
@@ -53,6 +54,10 @@ type AgentLinkServiceClient interface {
 	// set. The controller hashes what it sends and ends the stream with
 	// artifact_mismatch if its copy is wrong.
 	FetchArtifact(ctx context.Context, in *FetchArtifactRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FetchArtifactResponse], error)
+	// A console command's line (7b). Only for a server.command operation
+	// that is running on the calling node; anything else is not_permitted,
+	// as for GetInstallSpec.
+	GetCommandSpec(ctx context.Context, in *GetCommandSpecRequest, opts ...grpc.CallOption) (*GetCommandSpecResponse, error)
 }
 
 type agentLinkServiceClient struct {
@@ -105,6 +110,16 @@ func (c *agentLinkServiceClient) FetchArtifact(ctx context.Context, in *FetchArt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentLinkService_FetchArtifactClient = grpc.ServerStreamingClient[FetchArtifactResponse]
 
+func (c *agentLinkServiceClient) GetCommandSpec(ctx context.Context, in *GetCommandSpecRequest, opts ...grpc.CallOption) (*GetCommandSpecResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCommandSpecResponse)
+	err := c.cc.Invoke(ctx, AgentLinkService_GetCommandSpec_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentLinkServiceServer is the server API for AgentLinkService service.
 // All implementations must embed UnimplementedAgentLinkServiceServer
 // for forward compatibility.
@@ -122,6 +137,10 @@ type AgentLinkServiceServer interface {
 	// set. The controller hashes what it sends and ends the stream with
 	// artifact_mismatch if its copy is wrong.
 	FetchArtifact(*FetchArtifactRequest, grpc.ServerStreamingServer[FetchArtifactResponse]) error
+	// A console command's line (7b). Only for a server.command operation
+	// that is running on the calling node; anything else is not_permitted,
+	// as for GetInstallSpec.
+	GetCommandSpec(context.Context, *GetCommandSpecRequest) (*GetCommandSpecResponse, error)
 	mustEmbedUnimplementedAgentLinkServiceServer()
 }
 
@@ -140,6 +159,9 @@ func (UnimplementedAgentLinkServiceServer) GetInstallSpec(context.Context, *GetI
 }
 func (UnimplementedAgentLinkServiceServer) FetchArtifact(*FetchArtifactRequest, grpc.ServerStreamingServer[FetchArtifactResponse]) error {
 	return status.Error(codes.Unimplemented, "method FetchArtifact not implemented")
+}
+func (UnimplementedAgentLinkServiceServer) GetCommandSpec(context.Context, *GetCommandSpecRequest) (*GetCommandSpecResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetCommandSpec not implemented")
 }
 func (UnimplementedAgentLinkServiceServer) mustEmbedUnimplementedAgentLinkServiceServer() {}
 func (UnimplementedAgentLinkServiceServer) testEmbeddedByValue()                          {}
@@ -198,6 +220,24 @@ func _AgentLinkService_FetchArtifact_Handler(srv interface{}, stream grpc.Server
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentLinkService_FetchArtifactServer = grpc.ServerStreamingServer[FetchArtifactResponse]
 
+func _AgentLinkService_GetCommandSpec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCommandSpecRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentLinkServiceServer).GetCommandSpec(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentLinkService_GetCommandSpec_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentLinkServiceServer).GetCommandSpec(ctx, req.(*GetCommandSpecRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentLinkService_ServiceDesc is the grpc.ServiceDesc for AgentLinkService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -208,6 +248,10 @@ var AgentLinkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetInstallSpec",
 			Handler:    _AgentLinkService_GetInstallSpec_Handler,
+		},
+		{
+			MethodName: "GetCommandSpec",
+			Handler:    _AgentLinkService_GetCommandSpec_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

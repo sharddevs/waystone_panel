@@ -92,6 +92,11 @@ type Config struct {
 	// when nil; tests pin a small one).
 	StagingDir string
 	Artifacts  []minecraft.Artifact
+	// ConsoleDir holds the servers' console FIFOs (DefaultConsoleDir when
+	// empty), and ConsoleOwner is the uid that must own it and them: root
+	// in production, the test's own uid in tests (7b).
+	ConsoleDir   string
+	ConsoleOwner uint32
 
 	// For tests; zero values mean the real thing.
 	Dial         func(ctx context.Context) (net.Conn, error)      // a Unix dial of ControllerSocket
@@ -120,6 +125,8 @@ type Agent struct {
 	provisioner   Provisioner
 	stagingDir    string
 	artifacts     []minecraft.Artifact
+	consoleDir    string
+	consoleOwner  uint32
 	dial          func(ctx context.Context) (net.Conn, error)
 	creds         credentials.TransportCredentials
 	uidOf         func(net.Conn) (uint32, error)
@@ -168,6 +175,8 @@ func New(cfg Config) (*Agent, error) {
 		provisioner:   cfg.Provisioner,
 		stagingDir:    cfg.StagingDir,
 		artifacts:     cfg.Artifacts,
+		consoleDir:    cfg.ConsoleDir,
+		consoleOwner:  cfg.ConsoleOwner,
 		dial:          cfg.Dial,
 		uidOf:         cfg.UIDOf,
 		log:           cfg.Log,
@@ -210,6 +219,9 @@ func New(cfg Config) (*Agent, error) {
 	a.backoff.rand = cfg.Rand
 	if a.backoff.rand == nil {
 		a.backoff.rand = rand.Float64
+	}
+	if a.consoleDir == "" {
+		a.consoleDir = DefaultConsoleDir
 	}
 	if a.callTimeout == 0 {
 		a.callTimeout = callTimeout

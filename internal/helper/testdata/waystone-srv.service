@@ -2,7 +2,9 @@
 [Unit]
 Description=Waystone game server 3f2504e0-4f89-41d3-9a0c-0305e82c3301
 Wants=network-online.target
-After=network-online.target
+After=network-online.target waystone-srv-3f2504e0-4f89-41d3-9a0c-0305e82c3301-console.socket
+# The console FIFO (7b) comes up with every start and goes with every stop.
+Requires=waystone-srv-3f2504e0-4f89-41d3-9a0c-0305e82c3301-console.socket
 
 [Service]
 Type=simple
@@ -14,6 +16,12 @@ StateDirectory=waystone/servers/3f2504e0-4f89-41d3-9a0c-0305e82c3301
 StateDirectoryMode=0750
 WorkingDirectory=/var/lib/waystone/servers/3f2504e0-4f89-41d3-9a0c-0305e82c3301
 ExecStart=/usr/lib/jvm/java-25-openjdk-amd64/bin/java -Xms2048M -Xmx2048M -jar server.jar nogui
+# Console commands arrive on stdin from the console socket's FIFO. Output
+# still goes to the journal, which is where the log is read from (7a).
+Sockets=waystone-srv-3f2504e0-4f89-41d3-9a0c-0305e82c3301-console.socket
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=60s

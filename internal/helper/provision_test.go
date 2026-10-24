@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -135,17 +136,25 @@ type fakeUnits struct {
 	log      *[]string
 	checkErr error
 	changed  bool
-	content  []byte
+	// changedOnly, when set, decides changed per file instead.
+	changedOnly map[string]bool
+	content     map[string][]byte
 }
 
-func (f *fakeUnits) Check(serverID string) error {
-	*f.log = append(*f.log, "check unit "+serverID)
+func (f *fakeUnits) Check(name string) error {
+	*f.log = append(*f.log, "check unit "+name)
 	return f.checkErr
 }
 
-func (f *fakeUnits) Write(serverID string, content []byte) (bool, error) {
-	*f.log = append(*f.log, "write unit "+serverID)
-	f.content = content
+func (f *fakeUnits) Write(name string, content []byte) (bool, error) {
+	*f.log = append(*f.log, "write unit "+name)
+	if f.content == nil {
+		f.content = map[string][]byte{}
+	}
+	f.content[name] = content
+	if f.changedOnly != nil {
+		return f.changedOnly[name], nil
+	}
 	return f.changed, nil
 }
 
@@ -193,12 +202,16 @@ func TestProvisionFromScratch(t *testing.T) {
 		t.Error("changed = false after creating everything")
 	}
 	user := ServerUser(testServerID)
+	socket, service := ConsoleSocketName(testServerID), UnitName(testServerID)
 	wantLog := []string{
-		"check unit " + testServerID,
+		"check unit " + socket,
+		"check unit " + service,
 		"lookup " + user,
 		"create " + user + " " + AccountComment(testServerID),
 		"lookup " + user,
-		"write unit " + testServerID,
+		// The socket first: the service names it.
+		"write unit " + socket,
+		"write unit " + service,
 	}
 	if !slices.Equal(f.log, wantLog) {
 		t.Errorf("side effects:\n got %q\nwant %q", f.log, wantLog)
@@ -208,16 +221,21 @@ func TestProvisionFromScratch(t *testing.T) {
 		t.Errorf("runner calls %q, want %q", f.runner.calls, wantReload)
 	}
 
-	unit := string(f.units.content)
+	unit := string(f.units.content[service])
 	for _, want := range []string{
 		"User=" + user + "\n",
 		"StateDirectory=waystone/servers/" + testServerID + "\n",
 		"ExecStart=" + f.java + " -Xms2048M -Xmx2048M -jar server.jar nogui\n",
 		"MemoryMax=3072M\n",
+		"Sockets=" + socket + "\n",
+		"StandardInput=socket\n",
 	} {
 		if !strings.Contains(unit, want) {
 			t.Errorf("unit does not contain %q", want)
 		}
+	}
+	if want, _ := RenderConsoleSocket(testServerID); !bytes.Equal(f.units.content[socket], want) {
+		t.Errorf("console socket:\n%s", f.units.content[socket])
 	}
 }
 
@@ -238,6 +256,24 @@ func TestProvisionNothingToDo(t *testing.T) {
 	}
 	if slices.ContainsFunc(f.log, func(s string) bool { return strings.HasPrefix(s, "create") }) {
 		t.Errorf("created an account that already existed: %q", f.log)
+	}
+}
+
+// Either file changing is a change, and needs the reload: a server made
+// before 7b gets only its socket written.
+func TestProvisionEitherUnitChanged(t *testing.T) {
+	for _, name := range []string{ConsoleSocketName(testServerID), UnitName(testServerID)} {
+		f := newFixture(t)
+		user := ServerUser(testServerID)
+		f.accounts.accounts[user] = Account{Name: user, UID: 990, GID: 990, Comment: AccountComment(testServerID)}
+		f.units.changedOnly = map[string]bool{name: true}
+		changed, err := f.p.Provision(context.Background(), testServerID, testSpec)
+		if err != nil || !changed {
+			t.Errorf("%s: changed %v, %v", name, changed, err)
+		}
+		if len(f.runner.calls) != 1 {
+			t.Errorf("%s: runner calls %q, want one daemon-reload", name, f.runner.calls)
+		}
 	}
 }
 
@@ -269,7 +305,7 @@ func TestProvisionStopsBeforeChangesOnUnitConflict(t *testing.T) {
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("err = %v, want ErrConflict", err)
 	}
-	if want := []string{"check unit " + testServerID}; !slices.Equal(f.log, want) {
+	if want := []string{"check unit " + ConsoleSocketName(testServerID)}; !slices.Equal(f.log, want) {
 		t.Errorf("side effects %q, want only %q", f.log, want)
 	}
 }

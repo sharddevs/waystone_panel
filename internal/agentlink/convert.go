@@ -98,6 +98,7 @@ var commandActions = map[store.Action]agentv1.CommandAction{
 	store.ActionRestart:    agentv1.CommandAction_COMMAND_ACTION_RESTART,
 	store.ActionInstall:    agentv1.CommandAction_COMMAND_ACTION_INSTALL,
 	store.ActionAcceptEula: agentv1.CommandAction_COMMAND_ACTION_ACCEPT_EULA,
+	store.ActionCommand:    agentv1.CommandAction_COMMAND_ACTION_CONSOLE,
 }
 
 // resultCodes is the controller's fixed table from an agent's result code
@@ -124,6 +125,10 @@ var resultCodes = map[agentv1.ResultCode]store.OperationResult{
 		Summary: "The server's jar didn't match its pinned checksum, so it wasn't installed."},
 	agentv1.ResultCode_RESULT_CODE_SPEC_UNAVAILABLE: {State: store.StateFailed, Code: "spec_unavailable",
 		Summary: "The agent couldn't get the server's install settings, so nothing was done."},
+	agentv1.ResultCode_RESULT_CODE_NOT_RUNNING: {State: store.StateFailed, Code: "not_running",
+		Summary: "The server wasn't running, so the command wasn't sent."},
+	agentv1.ResultCode_RESULT_CODE_CONSOLE_UNAVAILABLE: {State: store.StateFailed, Code: "console_unavailable",
+		Summary: "The server's console isn't open, so the command wasn't sent. It opens when the server next starts."},
 	agentv1.ResultCode_RESULT_CODE_NO_ANSWER: {State: store.StateUncertain, Code: "no_answer",
 		Summary: "The node's helper didn't answer, so nobody knows whether the action ran."},
 }

@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApiError, isServerAction, type Dimension, type Operation, type PageAction, type Server, type ServerAction } from '../api'
+import { CommandBox } from '../components/CommandBox'
 import { ServerLog } from '../components/ServerLog'
 import { StatusLine } from '../components/StatusMark'
-import { actionName, ago, errorText, formatTime, gameLine, isActive, outcome, stateMark, stateWords, took } from '../format'
+import { ago, errorText, formatTime, gameLine, isActive, opLabel, outcome, stateMark, stateWords, took } from '../format'
 import { useLive } from '../live'
 import { useSignedIn } from '../session'
 import { dimensionsLine, reasonText, summarize } from '../status'
@@ -155,7 +156,15 @@ export function ServerPage({ id }: { id: string }) {
 
       <div aria-live="polite">{active && <ActiveLine op={active} now={now} />}</div>
 
-      <ServerLog serverId={s.id} />
+      <ServerLog serverId={s.id}>
+        <CommandBox
+          server={s}
+          onSent={(op) => {
+            setAccepted(op)
+            void Promise.all([reloadServer(), reloadHistory()])
+          }}
+        />
+      </ServerLog>
 
       <section className="history" aria-labelledby="history-title">
         <h2 id="history-title" className="section-title">
@@ -324,7 +333,7 @@ function Actions({ server: s, pending, onAct }: { server: Server; pending: PageA
 
 // ActiveLine is the operation in progress, on its own line (R2).
 function ActiveLine({ op, now }: { op: Operation; now: Date }) {
-  const parts = [actionName(op.action), op.state]
+  const parts = [opLabel(op), op.state]
   const t = took(op, now)
   if (op.phase) parts.push(t ? `${op.phase} (${t.replace('…', '')})` : op.phase)
   else if (t) parts.push(t)
@@ -345,7 +354,7 @@ function HistoryRow({ op, now }: { op: Operation; now: Date }) {
   return (
     <li>
       <Link className="history-row" to={`/operations/${encodeURIComponent(op.id)}`}>
-        <span className="cell-action">{actionName(op.action)}</span>
+        <span className="cell-action">{opLabel(op)}</span>
         <span className="cell-state">
           <StatusLine symbol={m.symbol} tone={m.tone}>
             {stateWords[op.state]}

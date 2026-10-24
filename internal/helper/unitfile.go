@@ -9,22 +9,23 @@ import (
 )
 
 // UnitFiles reads and writes server unit files in Dir
-// (DefaultUnitDir in production, a temporary directory in tests).
+// (DefaultUnitDir in production, a temporary directory in tests), by file
+// name: UnitName or ConsoleSocketName.
 type UnitFiles struct {
 	Dir string
 }
 
-func (u UnitFiles) path(serverID string) string {
-	return filepath.Join(u.Dir, UnitName(serverID))
+func (u UnitFiles) path(name string) string {
+	return filepath.Join(u.Dir, name)
 }
 
 // Check implements Units. A missing file is fine. Anything that isn't a
 // regular file starting with UnitMarker was not written by us, so it is
 // ErrConflict.
-func (u UnitFiles) Check(serverID string) error {
+func (u UnitFiles) Check(name string) error {
 	// Lstat doesn't follow symlinks, so a symlink shows up as one and is
 	// refused below instead of us reading whatever it points at.
-	info, err := os.Lstat(u.path(serverID))
+	info, err := os.Lstat(u.path(name))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -34,7 +35,7 @@ func (u UnitFiles) Check(serverID string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%w: unit path is not a regular file", ErrConflict)
 	}
-	content, err := os.ReadFile(u.path(serverID))
+	content, err := os.ReadFile(u.path(name))
 	if err != nil {
 		return err
 	}
@@ -47,11 +48,11 @@ func (u UnitFiles) Check(serverID string) error {
 // Write implements Units. If the file already holds exactly content it
 // changes nothing. Otherwise it writes a temp file and renames it into
 // place, so systemd never sees half a unit file.
-func (u UnitFiles) Write(serverID string, content []byte) (bool, error) {
-	if err := u.Check(serverID); err != nil {
+func (u UnitFiles) Write(name string, content []byte) (bool, error) {
+	if err := u.Check(name); err != nil {
 		return false, err
 	}
-	existing, err := os.ReadFile(u.path(serverID))
+	existing, err := os.ReadFile(u.path(name))
 	if err == nil {
 		if bytes.Equal(existing, content) {
 			return false, nil
@@ -82,7 +83,7 @@ func (u UnitFiles) Write(serverID string, content []byte) (bool, error) {
 	if err := tmp.Close(); err != nil {
 		return false, err
 	}
-	if err := os.Rename(tmp.Name(), u.path(serverID)); err != nil {
+	if err := os.Rename(tmp.Name(), u.path(name)); err != nil {
 		return false, err
 	}
 

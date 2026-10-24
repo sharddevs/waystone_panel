@@ -54,6 +54,8 @@ var (
 	ErrEulaNotAccepted = errors.New("eula not accepted")
 	// ErrAlreadyAccepted: the EULA was accepted already.
 	ErrAlreadyAccepted = errors.New("eula already accepted")
+	// ErrNotRunning: a console command needs the server running (7b).
+	ErrNotRunning = errors.New("server not running")
 )
 
 // InProgressError says which operation blocks a new one. errors.Is(err,

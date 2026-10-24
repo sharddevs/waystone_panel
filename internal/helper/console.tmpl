@@ -1,0 +1,21 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */ -}}
+# Managed by Waystone. Do not edit: provisioning rewrites this file.
+[Unit]
+Description=Waystone console for game server {{.ServerID}}
+# One FIFO per run of the game (7M1): whenever the game stops, by request
+# or by itself (a console stop, a crash past the start limit), this socket
+# stops too, and RemoveOnStop= removes the FIFO with anything still in it,
+# so a line can never wait in the pipe for a later run (audit 7b-M1).
+# BindsTo= covers a run that ends by itself; PartOf= carries restarts. No
+# After=: the service is ordered after the socket.
+BindsTo=waystone-srv-{{.ServerID}}.service
+PartOf=waystone-srv-{{.ServerID}}.service
+
+[Socket]
+ListenFIFO=/run/waystone-console/{{.ServerID}}
+SocketUser=root
+SocketGroup={{.Group}}
+SocketMode=0620
+DirectoryMode=0755
+RemoveOnStop=yes
+Service=waystone-srv-{{.ServerID}}.service

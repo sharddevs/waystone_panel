@@ -173,7 +173,7 @@ func (t *Tx) CreateServer(ctx context.Context, in NewServer) (s Server, op Opera
 		return Server{}, Operation{}, false, fmt.Errorf("insert server: %w", err)
 	}
 
-	if op, err = t.insertOperation(ctx, serverID, in.NodeID, ActionInstall); err != nil {
+	if op, err = t.insertOperation(ctx, serverID, in.NodeID, ActionInstall, ""); err != nil {
 		return Server{}, Operation{}, false, err
 	}
 	if err := t.storeKey(ctx, in.IdempotencyKey, in.RequestSHA256, op.ID, reuse); err != nil {

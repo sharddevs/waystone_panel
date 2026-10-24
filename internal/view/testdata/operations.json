@@ -59,6 +59,23 @@
         },
         "note": "Checked the console;\nit never came up."
       }
+    },
+    {
+      "id": "0199e1a0-0000-7000-8000-00000000d000",
+      "server_id": "0199e1a0-0000-7000-8000-000000000a01",
+      "node_id": "0199e1a0-0000-7000-8000-0000000000a1",
+      "action": "server.command",
+      "state": "succeeded",
+      "actor": {
+        "type": "user",
+        "id": "0199e1a0-0000-7000-8000-00000000c001",
+        "name": "Trevor"
+      },
+      "requested_at": "2026-10-16T09:30:02Z",
+      "started_at": "2026-10-16T09:30:02Z",
+      "finished_at": "2026-10-16T09:30:02.08Z",
+      "resolution": null,
+      "command": "say Back in five minutes"
     }
   ]
 }

@@ -159,6 +159,8 @@ export function reasonText(reason: string | undefined): string {
       return 'Unavailable while the server is running.'
     case 'already_accepted':
       return 'The EULA is already accepted.'
+    case 'server_not_running':
+      return "Unavailable while the server isn't running."
     default:
       return 'Unavailable right now.'
   }

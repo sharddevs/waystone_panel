@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ApiError, type LogLine } from '../api'
-import { errorText } from '../format'
+import { cleanLine, errorText } from '../format'
 import { Problem } from '../pages/Problem'
 import { usePoll } from '../poll'
 import { useSignedIn } from '../session'
@@ -20,15 +20,9 @@ export const keptLines = 1000
 // node says more lines are waiting.
 const readsPerPoll = 5
 
-// unsafeChars are what the server already replaces (serverlog.Clean):
-// control characters but tab, and the bidi controls. Replaced again here,
-// so no answer can make the text lie about itself.
-// eslint-disable-next-line no-control-regex
-const unsafeChars = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/g
-
-export function cleanLine(text: string): string {
-  return text.replace(unsafeChars, '\uFFFD')
-}
+// cleanLine moved to format.ts in 7b; the operation history shows command
+// lines with it too.
+export { cleanLine }
 
 // lineTone colours errors and warnings by their syslog priority.
 export function lineTone(priority: number): string {
@@ -46,7 +40,8 @@ interface Shown {
   line: LogLine
 }
 
-export function ServerLog({ serverId }: { serverId: string }) {
+// children go under the log: the command box (7b).
+export function ServerLog({ serverId, children }: { serverId: string; children?: ReactNode }) {
   const { client, expired } = useSignedIn()
   const [lines, setLines] = useState<Shown[] | undefined>(undefined)
   const [error, setError] = useState<ApiError | undefined>(undefined)
@@ -130,6 +125,7 @@ export function ServerLog({ serverId }: { serverId: string }) {
         </div>
       )}
       {lines !== undefined && error && <p className="meta stale">Couldn't refresh the log: {errorText(error)}</p>}
+      {children}
       <p className="meta">Read from the node each time; Waystone doesn't keep it. It can hold player names, addresses and chat.</p>
     </section>
   )

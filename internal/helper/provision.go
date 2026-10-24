@@ -103,15 +103,14 @@ type Accounts interface {
 	Create(ctx context.Context, name, comment string) error
 }
 
-// Units checks and writes a server's systemd unit file. Tests swap in a
-// fake.
+// Units checks and writes a server's systemd unit files, by file name
+// (UnitName, ConsoleSocketName). Tests swap in a fake.
 type Units interface {
-	// Check returns an error wrapping ErrConflict if a unit file for the
-	// server exists and was not written by Waystone. Nil if it is missing
-	// or ours.
-	Check(serverID string) error
+	// Check returns an error wrapping ErrConflict if the unit file exists
+	// and was not written by Waystone. Nil if it is missing or ours.
+	Check(name string) error
 	// Write puts content in place and reports whether the file changed.
-	Write(serverID string, content []byte) (changed bool, err error)
+	Write(name string, content []byte) (changed bool, err error)
 }
 
 // Provisioner sets up the root-owned things a server needs: its account
@@ -151,8 +150,10 @@ func (p Provisioner) Provision(ctx context.Context, serverID string, spec Spec) 
 	if !info.Mode().IsRegular() {
 		return false, fmt.Errorf("runtime %q is not a regular file", runtimePath)
 	}
-	if err := p.Units.Check(serverID); err != nil {
-		return false, fmt.Errorf("check unit: %w", err)
+	for _, name := range []string{ConsoleSocketName(serverID), UnitName(serverID)} {
+		if err := p.Units.Check(name); err != nil {
+			return false, fmt.Errorf("check unit: %w", err)
+		}
 	}
 	username := ServerUser(serverID)
 	comment := AccountComment(serverID)
@@ -180,31 +181,57 @@ func (p Provisioner) Provision(ctx context.Context, serverID string, spec Spec) 
 	if err := validateAccount(account, serverID); err != nil {
 		return false, err
 	}
-	params := UnitParams{
+	unitChanged, err := writeUnits(ctx, p.Units, p.Runner, UnitParams{
 		ServerID:     serverID,
 		User:         account.Name,
 		Java:         runtimePath,
 		HeapMiB:      spec.HeapMiB,
 		MemoryMaxMiB: spec.HeapMiB + JVMOverheadMiB,
+	})
+	if err != nil {
+		return false, err
 	}
-	content, err := RenderUnit(params)
+	return accountCreated || unitChanged, nil
+}
+
+// writeUnits renders and writes a server's console socket, then its
+// service (which names the socket), and runs daemon-reload if either
+// changed. It never starts, stops or restarts anything: a running game
+// keeps its old stdin until its next start (H4).
+func writeUnits(ctx context.Context, units Units, runner Runner, params UnitParams) (bool, error) {
+	socket, err := RenderConsoleSocket(params.ServerID)
+	if err != nil {
+		return false, fmt.Errorf("render console socket: %w", err)
+	}
+	service, err := RenderUnit(params)
 	if err != nil {
 		return false, fmt.Errorf("render unit: %w", err)
 	}
-	unitChanged, err := p.Units.Write(serverID, content)
+	socketChanged, err := units.Write(ConsoleSocketName(params.ServerID), socket)
+	if err != nil {
+		return false, fmt.Errorf("write console socket: %w", err)
+	}
+	unitChanged, err := units.Write(UnitName(params.ServerID), service)
 	if err != nil {
 		return false, fmt.Errorf("write unit: %w", err)
 	}
-	// systemd only picks up the new unit file after a daemon-reload.
-	if unitChanged {
-		_, err := p.Runner.Run(ctx, []string{
-			"/usr/bin/systemctl",
-			"--no-ask-password",
-			"daemon-reload",
-		})
-		if err != nil {
-			return false, fmt.Errorf("daemon-reload: %w", err)
+	// systemd only picks up new unit files after a daemon-reload.
+	if socketChanged || unitChanged {
+		if err := daemonReload(ctx, runner); err != nil {
+			return false, err
 		}
 	}
-	return accountCreated || unitChanged, nil
+	return socketChanged || unitChanged, nil
+}
+
+func daemonReload(ctx context.Context, runner Runner) error {
+	_, err := runner.Run(ctx, []string{
+		"/usr/bin/systemctl",
+		"--no-ask-password",
+		"daemon-reload",
+	})
+	if err != nil {
+		return fmt.Errorf("daemon-reload: %w", err)
+	}
+	return nil
 }

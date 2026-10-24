@@ -16,6 +16,21 @@ const UnitMarker = "# Managed by Waystone. Do not edit: provisioning rewrites th
 //go:embed unit.tmpl
 var unitTemplate string
 
+// consoleTemplate is the server's console socket (7b): the FIFO that is
+// the game's stdin.
+//
+//go:embed console.tmpl
+var consoleTemplate string
+
+// ConsoleGroup is the group that may write a console FIFO: the agent's.
+const ConsoleGroup = "waystone-agent"
+
+// ConsoleSocketName returns the console socket unit for a server,
+// "waystone-srv-<id>-console.socket". serverID has to be validated already.
+func ConsoleSocketName(serverID string) string {
+	return "waystone-srv-" + serverID + "-console.socket"
+}
+
 // UnitParams holds the values filled into unit.tmpl.
 type UnitParams struct {
 	ServerID     string
@@ -28,14 +43,22 @@ type UnitParams struct {
 // RenderUnit fills unit.tmpl with p. A field the template names but
 // UnitParams lacks shows up as an Execute error, so we return it.
 func RenderUnit(p UnitParams) ([]byte, error) {
-	tmpl, err := template.New("waystone-unit").Parse(unitTemplate)
+	return render(unitTemplate, p)
+}
+
+// RenderConsoleSocket fills console.tmpl for serverID.
+func RenderConsoleSocket(serverID string) ([]byte, error) {
+	return render(consoleTemplate, struct{ ServerID, Group string }{serverID, ConsoleGroup})
+}
+
+func render(text string, data any) ([]byte, error) {
+	tmpl, err := template.New("waystone-unit").Option("missingkey=error").Parse(text)
 	if err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, p); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		return nil, err
 	}
-
 	return buf.Bytes(), nil
 }

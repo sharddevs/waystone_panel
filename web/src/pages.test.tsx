@@ -164,10 +164,10 @@ describe('server page (wireframes §3)', () => {
     expect(screen.getAllByText('Unavailable while the node is unreachable.')).toHaveLength(1)
   })
 
-  it('install and the EULA are listed by the API but get no button here yet (6d)', async () => {
+  it('install, the EULA and commands are listed by the API but get no button among the actions (6d, 7b)', async () => {
     app(serverPath(survival))
     await screen.findByRole('heading', { level: 1, name: 'Survival World' })
-    expect(survival.actions.map((a) => a.action)).toEqual(['start', 'stop', 'restart', 'install', 'accept_eula'])
+    expect(survival.actions.map((a) => a.action)).toEqual(['start', 'stop', 'restart', 'install', 'accept_eula', 'command'])
     expect(screen.getAllByRole('button', { name: /^(Start|Stop|Restart)$/ })).toHaveLength(3)
     expect(screen.queryByRole('button', { name: /install|eula/i })).toBeNull()
   })
@@ -270,10 +270,12 @@ describe('server page (wireframes §3)', () => {
     await userEvent.click(within(history).getByRole('button', { name: 'Show more' }))
     await waitFor(() => expect(calls.some((c) => c.path === `/api/v1/operations?server_id=${survival.id}&limit=50`)).toBe(true))
     // Fewer than asked for: that's everything, so no more "Show more".
-    await waitFor(() => expect(within(history).getAllByRole('link')).toHaveLength(3))
+    await waitFor(() => expect(within(history).getAllByRole('link')).toHaveLength(4))
     expect(within(history).queryByRole('button', { name: 'Show more' })).toBeNull()
     // Uncertain is its own word, never failed or succeeded.
     expect(within(history).getAllByRole('link')[2]).toHaveTextContent('Outcome uncertain')
+    // A console command shows its line (7b).
+    expect(within(history).getAllByRole('link')[3]).toHaveTextContent('Command: say Back in five minutes')
   })
 
   it('a missing server says so', async () => {

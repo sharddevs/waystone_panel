@@ -33,6 +33,21 @@ service AgentLinkService {
   // set. The controller hashes what it sends and ends the stream with
   // artifact_mismatch if its copy is wrong.
   rpc FetchArtifact(FetchArtifactRequest) returns (stream FetchArtifactResponse);
+
+  // A console command's line (7b). Only for a server.command operation
+  // that is running on the calling node; anything else is not_permitted,
+  // as for GetInstallSpec.
+  rpc GetCommandSpec(GetCommandSpecRequest) returns (GetCommandSpecResponse);
+}
+
+message GetCommandSpecRequest {
+  string server_id = 1;
+  string operation_id = 2;
+}
+
+// The line to write. The agent checks it again (console.ValidLine).
+message GetCommandSpecResponse {
+  string command = 1;
 }
 
 message GetInstallSpecRequest {
@@ -247,6 +262,9 @@ enum CommandAction {
   COMMAND_ACTION_INSTALL = 4;
   // Write eula.txt for an explicit acceptance (6c-2).
   COMMAND_ACTION_ACCEPT_EULA = 5;
+  // Write one line to the server's console FIFO (7b). The line comes
+  // from GetCommandSpec, never from the command.
+  COMMAND_ACTION_CONSOLE = 6;
 }
 
 // Sent once during a restart, after the stop succeeded and before the
@@ -312,4 +330,11 @@ enum ResultCode {
   // The controller didn't give an install spec, or gave one this agent
   // refuses; nothing was done.
   RESULT_CODE_SPEC_UNAVAILABLE = 11;
+  // The helper said the server isn't running, so the console line wasn't
+  // written (7b, 7M1).
+  RESULT_CODE_NOT_RUNNING = 12;
+  // The server's console isn't open, or failed its checks, so nothing was
+  // written (7b). A server provisioned before 7b opens it at its next
+  // start.
+  RESULT_CODE_CONSOLE_UNAVAILABLE = 13;
 }

@@ -57,6 +57,9 @@ type fakeLink struct {
 	end     error // after the chunks; nil is a clean end
 	gotReq  *agentv1.FetchArtifactRequest
 	stream  *fakeChunks
+	// A console command's line (7b), and the calls made, in order.
+	cmdSpec *agentv1.GetCommandSpecResponse
+	calls   []string
 }
 
 func (f *fakeLink) GetInstallSpec(context.Context, *agentv1.GetInstallSpecRequest, ...grpc.CallOption) (*agentv1.GetInstallSpecResponse, error) {

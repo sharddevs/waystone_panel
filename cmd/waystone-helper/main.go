@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"os"
@@ -20,8 +21,14 @@ import (
 func main() {
 	agentUser := flag.String("agent-user", "waystone-agent", "the only user allowed to send requests")
 	role := flag.String("role", helper.RoleRuntime, "helper role: runtime or provision")
+	upgrade := flag.Bool("upgrade-units", false, "rewrite every Waystone server unit for this build, restarting nothing, and exit")
 	flag.Parse()
 	log.SetFlags(0) // journald adds timestamps
+
+	if *upgrade {
+		upgradeUnits()
+		return
+	}
 
 	account, err := user.Lookup(*agentUser)
 	if err != nil {
@@ -68,4 +75,21 @@ func main() {
 	if err := server.Serve(listener); err != nil {
 		log.Fatalf("helper server failed: %v", err)
 	}
+}
+
+// upgradeUnits is -upgrade-units (7b, H4): run once by hand, as root, on
+// deploy. No game is started, stopped or restarted.
+func upgradeUnits() {
+	results, err := helper.UpgradeUnits(context.Background(), helper.UnitFiles{Dir: helper.DefaultUnitDir}, helper.ExecRunner{}, helper.DefaultRuntimes)
+	for _, r := range results {
+		what := "unchanged"
+		if r.Changed {
+			what = "rewritten; console after its next start"
+		}
+		log.Printf("server %s: %s", r.ServerID, what)
+	}
+	if err != nil {
+		log.Fatalf("upgrade stopped: %v", err)
+	}
+	log.Printf("%d servers checked; nothing was restarted", len(results))
 }

@@ -87,6 +87,9 @@ func (s *Service) Logf(format string, args ...any) { s.logf(format, args...) }
 
 // Route is one of the service's routes. Pattern is a path pattern as
 // http.ServeMux understands it, without the method.
+// commandRoute sends a console command (7b).
+const commandRoute = "/api/v1/servers/{id}/command"
+
 type Route struct {
 	Method  string
 	Pattern string
@@ -111,6 +114,7 @@ func (s *Service) Routes() []Route {
 		action(store.ActionRestart, "restart"),
 		action(store.ActionInstall, "install"),
 		action(store.ActionAcceptEula, "accept-eula"),
+		{http.MethodPost, commandRoute, s.handleCommand(commandRoute)},
 		{http.MethodGet, "/api/v1/operations", http.HandlerFunc(s.handleListOperations)},
 		{http.MethodGet, "/api/v1/operations/{id}", http.HandlerFunc(s.handleGetOperation)},
 		{http.MethodPost, "/api/v1/operations/{id}/resolve", http.HandlerFunc(s.handleResolve)},

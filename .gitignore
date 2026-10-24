@@ -1,3 +1,4 @@
 /bin/
 /internal/webui/dist/
 /web/node_modules/
+/web/tsconfig.tsbuildinfo

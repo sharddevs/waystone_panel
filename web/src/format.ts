@@ -15,12 +15,30 @@ const actionNames: Record<string, string> = {
   'server.restart': 'Restart server',
   'server.install': 'Install server',
   'server.accept_eula': 'Accept EULA',
+  'server.command': 'Console command',
 }
 
 // actionName is "Start server" for server.start. An action this page
 // doesn't know yet is shown as it is, never hidden.
 export function actionName(action: string): string {
   return actionNames[action] ?? action
+}
+
+// unsafeChars are what the server already replaces in a log line
+// (serverlog.Clean) and refuses in a command (console.ValidLine): control
+// characters but tab, and the bidi controls. Replaced again here, so no
+// answer can make the text lie about itself.
+// eslint-disable-next-line no-control-regex
+const unsafeChars = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/g
+
+export function cleanLine(text: string): string {
+  return text.replace(unsafeChars, '\uFFFD')
+}
+
+// opLabel is the action's name, with a console command's line (7b):
+// "Command: say hi".
+export function opLabel(o: Operation): string {
+  return o.action === 'server.command' && o.command !== undefined ? `Command: ${cleanLine(o.command)}` : actionName(o.action)
 }
 
 // actionVerb is how an uncertain outcome is explained: "whether the
@@ -37,6 +55,8 @@ function actionPast(action: string): string {
       return 'was installed'
     case 'server.accept_eula':
       return 'had its EULA accepted'
+    case 'server.command':
+      return 'got the command'
     default:
       return 'did what was asked'
   }
@@ -163,6 +183,10 @@ export function errorText(e: unknown): string {
       return 'Another server on this node already uses that port.'
     case 'node_full':
       return 'This node already has as many servers as it can manage.'
+    case 'invalid_command':
+      return "A command is one line of up to 256 bytes, with no control characters, and doesn't start with /."
+    case 'server_not_running':
+      return 'Commands can only be sent while the server is running.'
     case 'logs_unavailable':
       return "The node couldn't read the server's log just now."
     case 'enrollment_unavailable':

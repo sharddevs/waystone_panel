@@ -36,6 +36,8 @@ const (
 	CodeAlreadyAccepted            = "already_accepted"
 	CodeNodeFull                   = "node_full"
 	CodeLogsUnavailable            = "logs_unavailable"
+	CodeInvalidCommand             = "invalid_command"
+	CodeServerNotRunning           = "server_not_running"
 	CodeInternal                   = "internal"
 )
 
@@ -69,6 +71,8 @@ var errorInfo = map[string]struct {
 	CodeAlreadyAccepted:            {http.StatusConflict, "The Minecraft EULA has already been accepted for this server."},
 	CodeNodeFull:                   {http.StatusConflict, "This node already has as many servers as it can manage."},
 	CodeLogsUnavailable:            {http.StatusServiceUnavailable, "The server's log couldn't be read just now. Try again shortly."},
+	CodeInvalidCommand:             {http.StatusBadRequest, "A command is 1 to 256 bytes on one line, with no control characters and no leading /."},
+	CodeServerNotRunning:           {http.StatusConflict, "Commands can only be sent while the server is running."},
 	CodeInternal:                   {http.StatusInternalServerError, "Internal error."},
 }
 
@@ -226,6 +230,8 @@ func errorFor(err error) *Error {
 
 	case errors.Is(err, store.ErrServerRunning):
 		return newError(CodeServerRunning, err)
+	case errors.Is(err, store.ErrNotRunning):
+		return newError(CodeServerNotRunning, err)
 
 	case errors.Is(err, store.ErrNotInstalled):
 		return newError(CodeNotInstalled, err)

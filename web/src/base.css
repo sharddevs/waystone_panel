@@ -865,6 +865,36 @@ a.button {
 .log-bad .log-text {
   color: var(--bad);
 }
+/* The console command box (7b). */
+.command-box {
+  margin-top: 10px;
+}
+.command-row {
+  display: flex;
+  gap: 8px;
+}
+.command-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.command-row input[aria-invalid='true'] {
+  border-color: var(--bad);
+}
+.command-row input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.command-box .problem-text,
+.command-box .reason {
+  margin: 6px 0 0;
+}
 @media (max-width: 600px) {
   .log-box {
     height: 60vh;

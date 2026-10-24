@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/sharddevs/waystone_panel/internal/console"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/store"
 	"github.com/sharddevs/waystone_panel/internal/view"
@@ -34,6 +35,11 @@ const defaultListLimit = 50
 // the only valid body is {} (or none at all). It still exists so unknown
 // fields are refused and so the fingerprint has a canonical body.
 type ActionRequest struct{}
+
+// CommandRequest is the body of POST /servers/{id}/command (7b).
+type CommandRequest struct {
+	Command string `json:"command"`
+}
 
 // ResolveRequest is the body of POST /operations/{id}/resolve.
 type ResolveRequest struct {
@@ -216,7 +222,8 @@ func (s *Service) handleGetServer(w http.ResponseWriter, r *http.Request) {
 //
 //  1. {id} must pass ids.Check, else bad_request. (Check it before run,
 //     so only a real UUID can end up in an audit row.)
-//  2. decodeJSON into an ActionRequest.
+//  2. decodeJSON into an ActionRequest (a CommandRequest for a command,
+//     whose line must pass console.ValidLine, else invalid_command).
 //  3. An Idempotency-Key header, if present, must pass
 //     store.ValidIdempotencyKey, else invalid_idempotency_key.
 //  4. Fingerprint(r.Method, route, id, the decoded body).
@@ -225,8 +232,6 @@ func (s *Service) handleGetServer(w http.ResponseWriter, r *http.Request) {
 //     /api/v1/operations/<op id>, and the operation as JSON, after
 //     OnOperation has been told about it. A replay (same key, same
 //     request): 200 with the operation as it is now, and no OnOperation.
-//
-// TODO
 func (s *Service) handleAction(action store.Action, route string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := checkQuery(r); err != nil {
@@ -247,54 +252,85 @@ func (s *Service) handleAction(action store.Action, route string) http.HandlerFu
 			s.writeError(w, r, err)
 			return
 		}
-
-		key := r.Header.Get("Idempotency-Key")
-
-		if key != "" && !store.ValidIdempotencyKey(key) {
-			s.writeError(w, r, newError(CodeInvalidIdempotencyKey, nil))
-			return
-		}
-
-		fingerprint, err := Fingerprint(r.Method, route, id, body)
-		if err != nil {
-			s.writeError(w, r, newError(CodeInternal, err))
-			return
-		}
-
-		var operation store.Operation
-		var replayed bool
-
-		err = s.run(r, string(action), "server", id, func(ctx context.Context, tx *store.Tx) error {
-			var err error
-
-			operation, replayed, err = tx.CreateOperation(ctx, store.CreateOperationInput{
-				ServerID:       id,
-				Action:         action,
-				IdempotencyKey: key,
-				RequestSHA256:  fingerprint,
-			})
-
-			return err
-		})
-		if err != nil {
-			s.writeError(w, r, errorFor(err))
-			return
-		}
-
-		status := http.StatusAccepted
-
-		if replayed {
-			status = http.StatusOK
-		} else {
-			w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
-			// Committed by now, so the agent's claim can see it.
-			if s.onOperation != nil {
-				s.onOperation(operation)
-			}
-		}
-
-		writeJSON(w, status, view.OperationOf(operation))
+		s.createOperation(w, r, action, route, id, body, "")
 	}
+}
+
+// handleCommand is handleAction for POST /api/v1/servers/{id}/command
+// (7b): the body carries the console line.
+func (s *Service) handleCommand(route string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := checkQuery(r); err != nil {
+			s.writeError(w, r, err)
+			return
+		}
+		id := r.PathValue("id")
+		if err := ids.Check(id); err != nil {
+			s.writeError(w, r, newError(CodeBadRequest, err))
+			return
+		}
+		var body CommandRequest
+		if err := decodeJSON(w, r, &body); err != nil {
+			s.writeError(w, r, err)
+			return
+		}
+		if !console.ValidLine(body.Command) {
+			s.writeError(w, r, newError(CodeInvalidCommand, nil))
+			return
+		}
+		s.createOperation(w, r, store.ActionCommand, route, id, body, body.Command)
+	}
+}
+
+// createOperation is steps 3 to 6 of handleAction, for a decoded body.
+func (s *Service) createOperation(w http.ResponseWriter, r *http.Request, action store.Action, route, id string, body any, command string) {
+	key := r.Header.Get("Idempotency-Key")
+
+	if key != "" && !store.ValidIdempotencyKey(key) {
+		s.writeError(w, r, newError(CodeInvalidIdempotencyKey, nil))
+		return
+	}
+
+	fingerprint, err := Fingerprint(r.Method, route, id, body)
+	if err != nil {
+		s.writeError(w, r, newError(CodeInternal, err))
+		return
+	}
+
+	var operation store.Operation
+	var replayed bool
+
+	err = s.run(r, string(action), "server", id, func(ctx context.Context, tx *store.Tx) error {
+		var err error
+
+		operation, replayed, err = tx.CreateOperation(ctx, store.CreateOperationInput{
+			ServerID:       id,
+			Action:         action,
+			IdempotencyKey: key,
+			RequestSHA256:  fingerprint,
+			Command:        command,
+		})
+
+		return err
+	})
+	if err != nil {
+		s.writeError(w, r, errorFor(err))
+		return
+	}
+
+	status := http.StatusAccepted
+
+	if replayed {
+		status = http.StatusOK
+	} else {
+		w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
+		// Committed by now, so the agent's claim can see it.
+		if s.onOperation != nil {
+			s.onOperation(operation)
+		}
+	}
+
+	writeJSON(w, status, view.OperationOf(operation))
 }
 
 // handleListOperations: GET /api/v1/operations?server_id=&limit= → 200

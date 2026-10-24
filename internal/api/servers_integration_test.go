@@ -230,12 +230,12 @@ func TestServerActions(t *testing.T) {
 	check := func(name, wantReason string) {
 		t.Helper()
 		acts := e.getServer(t, serverA1).Actions
-		if len(acts) != 5 || acts[0].Action != "start" || acts[1].Action != "stop" || acts[2].Action != "restart" ||
-			acts[3].Action != "install" || acts[4].Action != "accept_eula" {
+		if len(acts) != 6 || acts[0].Action != "start" || acts[1].Action != "stop" || acts[2].Action != "restart" ||
+			acts[3].Action != "install" || acts[4].Action != "accept_eula" || acts[5].Action != "command" {
 			t.Fatalf("%s: actions = %+v", name, acts)
 		}
-		// install and accept_eula (6c) have their own state rules; this
-		// test is about the operation and node reasons start/stop/restart
+		// install, accept_eula (6c) and command (7b) have their own state
+		// rules; this test is about the operation and node reasons start/stop/restart
 		// share.
 		for _, a := range acts[:3] {
 			if a.Allowed != (wantReason == "") || a.Reason != wantReason {

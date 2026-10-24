@@ -51,6 +51,10 @@
       "action": "accept_eula",
       "allowed": false,
       "reason": "already_accepted"
+    },
+    {
+      "action": "command",
+      "allowed": true
     }
   ]
 }

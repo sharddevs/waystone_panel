@@ -29,6 +29,7 @@ const (
 	methodConnect        = "/waystone.agent.v1.AgentLinkService/Connect"
 	methodGetInstallSpec = "/waystone.agent.v1.AgentLinkService/GetInstallSpec"
 	methodFetchArtifact  = "/waystone.agent.v1.AgentLinkService/FetchArtifact"
+	methodGetCommandSpec = "/waystone.agent.v1.AgentLinkService/GetCommandSpec"
 	methodEnroll         = "/waystone.agent.v1.EnrollService/Enroll"
 )
 
@@ -45,6 +46,7 @@ var methodRules = map[string]rule{
 	methodConnect:        ruleNode,
 	methodGetInstallSpec: ruleNode, // 6c-2; the handler checks the operation (6M5)
 	methodFetchArtifact:  ruleNode, // 6c-2; likewise
+	methodGetCommandSpec: ruleNode, // 7b; the handler checks the operation
 	methodEnroll:         ruleEnroll,
 }
 
@@ -104,8 +106,8 @@ func isTCP(ctx context.Context) bool {
 	return ok
 }
 
-// unaryAuthz admits Enroll from a TCP peer, and GetInstallSpec from a
-// node with the node in the context. Nothing else.
+// unaryAuthz admits Enroll from a TCP peer, and GetInstallSpec and
+// GetCommandSpec from a node with the node in the context. Nothing else.
 func (s *Server) unaryAuthz(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	switch methodRules[info.FullMethod] {
 	case ruleEnroll:

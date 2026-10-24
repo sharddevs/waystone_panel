@@ -355,6 +355,7 @@ func TestRoutes(t *testing.T) {
 		"POST /api/v1/servers/{id}/restart",
 		"POST /api/v1/servers/{id}/install",
 		"POST /api/v1/servers/{id}/accept-eula",
+		"POST /api/v1/servers/{id}/command",
 		"GET /api/v1/operations",
 		"GET /api/v1/operations/{id}",
 		"POST /api/v1/operations/{id}/resolve",

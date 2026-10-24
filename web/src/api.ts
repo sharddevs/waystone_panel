@@ -13,9 +13,10 @@ export const processStates = ['stopped', 'starting', 'running', 'stopping', 'fai
 export const readinessStates = ['ready', 'not_ready', 'unknown', 'not_supported'] as const
 export const operationStates = ['pending', 'running', 'succeeded', 'failed', 'uncertain'] as const
 // serverActions have buttons on the server page; listedActions are every
-// action the API lists (install and accept_eula since 6c).
+// action the API lists (install and accept_eula since 6c, command since
+// 7b).
 export const serverActions = ['start', 'stop', 'restart'] as const
-export const listedActions = [...serverActions, 'install', 'accept_eula'] as const
+export const listedActions = [...serverActions, 'install', 'accept_eula', 'command'] as const
 
 export type ProcessState = (typeof processStates)[number]
 export type ReadinessState = (typeof readinessStates)[number]
@@ -27,9 +28,10 @@ export function isServerAction(a: string): a is ServerAction {
   return (serverActions as readonly string[]).includes(a)
 }
 
-// PageAction is anything the server page can ask for: the buttons, the
-// install, and the EULA (6d).
-export type PageAction = ListedAction
+// PageAction is anything the server page can ask for with an empty body:
+// the buttons, the install, and the EULA (6d). A command carries its line
+// (client.command).
+export type PageAction = Exclude<ListedAction, 'command'>
 
 const actionVerbs: Record<PageAction, string> = {
   start: 'start',
@@ -62,6 +64,8 @@ export interface Operation {
   actor: Actor
   error_code?: string
   error_summary?: string
+  // command is a console command's line (7b), on server.command only.
+  command?: string
   requested_at: string
   started_at: string | null
   finished_at: string | null
@@ -187,7 +191,7 @@ export const decodeOperation: Decoder<Operation> = object(
     finished_at: nullable(time),
     resolution: nullable(resolution),
   },
-  { phase: str, error_code: str, error_summary: str },
+  { phase: str, error_code: str, error_summary: str, command: str },
 )
 
 const reachability = object({ state: oneOf(['reachable', 'unreachable'] as const), last_seen_at: nullable(time) })
@@ -402,6 +406,15 @@ export class Client {
   act(serverId: string, action: PageAction, csrf: string, idempotencyKey: string): Promise<Operation> {
     return this.request('POST', `/api/v1/servers/${encodeURIComponent(serverId)}/${actionVerbs[action]}`, decodeOperation, {
       body: {},
+      csrf,
+      idempotencyKey,
+    })
+  }
+  // command sends one line to the server's console (7b). The answer is
+  // the operation; the line is written when the node runs it.
+  command(serverId: string, line: string, csrf: string, idempotencyKey: string): Promise<Operation> {
+    return this.request('POST', `/api/v1/servers/${encodeURIComponent(serverId)}/command`, decodeOperation, {
+      body: { command: line },
       csrf,
       idempotencyKey,
     })

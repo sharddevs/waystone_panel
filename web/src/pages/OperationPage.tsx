@@ -5,7 +5,7 @@ import { Link, useParams } from 'react-router'
 import { ApiError, type Operation } from '../api'
 import { CopyButton } from '../components/CopyButton'
 import { StatusLine } from '../components/StatusMark'
-import { actionName, errorText, formatTime, isActive, stateMark, stateWords, took, uncertainText } from '../format'
+import { actionName, cleanLine, errorText, formatTime, isActive, stateMark, stateWords, took, uncertainText } from '../format'
 import { useLive } from '../live'
 import { useSignedIn } from '../session'
 import { Problem } from './Problem'
@@ -88,6 +88,12 @@ export function OperationPage({ id }: { id: string }) {
       {op.error && <p className="meta stale">Couldn't refresh: {errorText(op.error)}</p>}
 
       <dl className="facts timeline">
+        {o.command !== undefined && (
+          <>
+            <dt>Command</dt>
+            <dd className="mono">{cleanLine(o.command)}</dd>
+          </>
+        )}
         <dt>Requested</dt>
         <dd>
           {formatTime(o.requested_at, now, true)} by {o.actor.name}

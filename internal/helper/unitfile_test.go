@@ -31,10 +31,10 @@ func TestUnitFilesWriteNewAndRepeat(t *testing.T) {
 	u := UnitFiles{Dir: dir}
 	path := filepath.Join(dir, testUnit)
 
-	if err := u.Check(testServerID); err != nil {
+	if err := u.Check(testUnit); err != nil {
 		t.Fatalf("Check on a missing file: %v", err)
 	}
-	changed, err := u.Write(testServerID, unitContent("a"))
+	changed, err := u.Write(testUnit, unitContent("a"))
 	if err != nil || !changed {
 		t.Fatalf("first Write = %v, %v; want true, nil", changed, err)
 	}
@@ -50,18 +50,18 @@ func TestUnitFilesWriteNewAndRepeat(t *testing.T) {
 		t.Errorf("mode %v, want 0644 (systemd and admins must be able to read it)", info.Mode().Perm())
 	}
 
-	changed, err = u.Write(testServerID, unitContent("a"))
+	changed, err = u.Write(testUnit, unitContent("a"))
 	if err != nil || changed {
 		t.Errorf("same content again = %v, %v; want false, nil", changed, err)
 	}
-	changed, err = u.Write(testServerID, unitContent("b"))
+	changed, err = u.Write(testUnit, unitContent("b"))
 	if err != nil || !changed {
 		t.Errorf("new content = %v, %v; want true, nil", changed, err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != string(unitContent("b")) {
 		t.Errorf("file holds %q after rewrite", got)
 	}
-	if err := u.Check(testServerID); err != nil {
+	if err := u.Check(testUnit); err != nil {
 		t.Errorf("Check on our own file: %v", err)
 	}
 	onlyUnit(t, dir)
@@ -75,10 +75,10 @@ func TestUnitFilesRefuseHandWrittenUnit(t *testing.T) {
 		t.Fatal(err)
 	}
 	u := UnitFiles{Dir: dir}
-	if err := u.Check(testServerID); !errors.Is(err, ErrConflict) {
+	if err := u.Check(testUnit); !errors.Is(err, ErrConflict) {
 		t.Errorf("Check = %v, want ErrConflict", err)
 	}
-	if _, err := u.Write(testServerID, unitContent("a")); !errors.Is(err, ErrConflict) {
+	if _, err := u.Write(testUnit, unitContent("a")); !errors.Is(err, ErrConflict) {
 		t.Errorf("Write = %v, want ErrConflict", err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != string(hand) {
@@ -97,10 +97,10 @@ func TestUnitFilesRefuseSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	u := UnitFiles{Dir: dir}
-	if err := u.Check(testServerID); !errors.Is(err, ErrConflict) {
+	if err := u.Check(testUnit); !errors.Is(err, ErrConflict) {
 		t.Errorf("Check = %v, want ErrConflict", err)
 	}
-	if _, err := u.Write(testServerID, unitContent("a")); !errors.Is(err, ErrConflict) {
+	if _, err := u.Write(testUnit, unitContent("a")); !errors.Is(err, ErrConflict) {
 		t.Errorf("Write = %v, want ErrConflict", err)
 	}
 	if got, _ := os.ReadFile(target); string(got) != string(unitContent("target")) {

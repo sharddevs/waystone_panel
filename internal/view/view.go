@@ -44,6 +44,8 @@ type Operation struct {
 	StartedAt    *time.Time  `json:"started_at"`
 	FinishedAt   *time.Time  `json:"finished_at"`
 	Resolution   *Resolution `json:"resolution"`
+	// Command is the console line of a server.command (7b).
+	Command string `json:"command,omitempty"`
 }
 
 type Dimension struct {
@@ -123,6 +125,7 @@ func OperationOf(op store.Operation) Operation {
 		RequestedAt:  op.RequestedAt,
 		StartedAt:    op.StartedAt,
 		FinishedAt:   op.FinishedAt,
+		Command:      op.Command,
 	}
 	if r := op.Resolution; r != nil {
 		out.Resolution = &Resolution{At: r.At, Outcome: string(r.Outcome), By: ActorOf(r.By), Note: r.Note}
@@ -162,6 +165,7 @@ var serverActions = []struct {
 	{"restart", store.ActionRestart},
 	{"install", store.ActionInstall},
 	{"accept_eula", store.ActionAcceptEula},
+	{"command", store.ActionCommand},
 }
 
 // The B8 reason codes. Fixed strings the UI maps to text.
@@ -174,12 +178,14 @@ const (
 	reasonEulaNotAccepted     = "eula_not_accepted"
 	reasonServerRunning       = "server_running"
 	reasonAlreadyAccepted     = "already_accepted"
+	reasonServerNotRunning    = "server_not_running"
 )
 
 // stateReason is the reason the server's own state refuses action, or
 // "" (6c): start and restart wait for the install and the EULA, an
-// install for the server to stop, and the EULA is accepted once, after
-// an install. The same checks, in the same order, as CreateOperation's.
+// install for the server to stop, the EULA is accepted once, after an
+// install, and a console command waits for the server to run (7b). The
+// same checks, in the same order, as CreateOperation's.
 func stateReason(a store.Action, s store.Server) string {
 	switch a {
 	case store.ActionStart, store.ActionRestart:
@@ -199,6 +205,10 @@ func stateReason(a store.Action, s store.Server) string {
 		}
 		if s.EulaAccepted {
 			return reasonAlreadyAccepted
+		}
+	case store.ActionCommand:
+		if s.ProcessState != "running" {
+			return reasonServerNotRunning
 		}
 	}
 	return ""

@@ -19,7 +19,7 @@ func none(store.Action) bool { return false }
 // null when nothing is left. Only the actions allowed says yes to remain.
 func TestActionsForRole(t *testing.T) {
 	s := store.Server{}
-	if got := ActionsFor(all, s, true); len(got) != 5 {
+	if got := ActionsFor(all, s, true); len(got) != 6 {
 		t.Errorf("admin: %+v", got)
 	}
 	onlyStop := func(a store.Action) bool { return a == store.ActionStop }
@@ -53,10 +53,10 @@ func TestActionsReasonOrder(t *testing.T) {
 	}
 	for _, tc := range cases {
 		// Set up and stopped, so the server's own state refuses nothing
-		// but accepting the EULA again.
+		// but accepting the EULA again and a command.
 		ready := store.Server{Blocking: tc.blocking, Installed: true, EulaAccepted: true, ProcessState: "stopped"}
 		for _, a := range ActionsFor(all, ready, tc.reachable) {
-			if a.Action == "accept_eula" {
+			if a.Action == "accept_eula" || a.Action == "command" {
 				continue
 			}
 			if a.Reason != tc.reason || a.Allowed != (tc.reason == "") {
@@ -84,18 +84,18 @@ func TestActionsServerState(t *testing.T) {
 		want map[string]string
 	}{
 		"new": {store.Server{ProcessState: "unknown"}, map[string]string{
-			"start": "not_installed", "stop": "", "restart": "not_installed", "install": "", "accept_eula": "not_installed"}},
+			"start": "not_installed", "stop": "", "restart": "not_installed", "install": "", "accept_eula": "not_installed", "command": "server_not_running"}},
 		"installed, unknown": {store.Server{Installed: true, ProcessState: "unknown"}, map[string]string{
-			"start": "eula_not_accepted", "stop": "", "restart": "eula_not_accepted", "install": "server_running", "accept_eula": ""}},
+			"start": "eula_not_accepted", "stop": "", "restart": "eula_not_accepted", "install": "server_running", "accept_eula": "", "command": "server_not_running"}},
 		"new, stopped": {store.Server{ProcessState: "stopped"}, map[string]string{
-			"start": "not_installed", "stop": "", "restart": "not_installed", "install": "", "accept_eula": "not_installed"}},
+			"start": "not_installed", "stop": "", "restart": "not_installed", "install": "", "accept_eula": "not_installed", "command": "server_not_running"}},
 		"installed": {store.Server{Installed: true, ProcessState: "failed"}, map[string]string{
-			"start": "eula_not_accepted", "stop": "", "restart": "eula_not_accepted", "install": "", "accept_eula": ""}},
+			"start": "eula_not_accepted", "stop": "", "restart": "eula_not_accepted", "install": "", "accept_eula": "", "command": "server_not_running"}},
 		"running": {store.Server{Installed: true, EulaAccepted: true, ProcessState: "running"}, map[string]string{
-			"start": "", "stop": "", "restart": "", "install": "server_running", "accept_eula": "already_accepted"}},
+			"start": "", "stop": "", "restart": "", "install": "server_running", "accept_eula": "already_accepted", "command": ""}},
 		"busy": {store.Server{Blocking: store.StatePending, ProcessState: "stopped"}, map[string]string{
 			"start": "operation_in_progress", "stop": "operation_in_progress", "restart": "operation_in_progress",
-			"install": "operation_in_progress", "accept_eula": "operation_in_progress"}},
+			"install": "operation_in_progress", "accept_eula": "operation_in_progress", "command": "operation_in_progress"}},
 	} {
 		if got := reasons(c.s); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: %v, want %v", name, got, c.want)

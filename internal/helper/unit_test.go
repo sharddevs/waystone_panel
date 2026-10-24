@@ -41,3 +41,21 @@ func TestRenderUnitStartsWithMarker(t *testing.T) {
 		t.Errorf("unit does not start with UnitMarker:\n%s", got)
 	}
 }
+
+// The console socket (7b) is compared with its golden file too.
+func TestRenderConsoleSocketGolden(t *testing.T) {
+	got, err := RenderConsoleSocket(testServerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile("testdata/waystone-srv-console.socket")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("rendered socket differs from testdata/waystone-srv-console.socket:\n%s", got)
+	}
+	if !strings.HasPrefix(string(got), UnitMarker) {
+		t.Error("socket does not start with UnitMarker")
+	}
+}
