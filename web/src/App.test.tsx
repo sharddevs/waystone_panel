@@ -137,10 +137,10 @@ async function signedIn(over?: (c: Call) => Reply | Promise<Reply> | undefined) 
 }
 
 describe('the frame and user menu', () => {
-  it('has the one nav item and a keyboard-reachable user menu', async () => {
+  it('has Servers and Nodes (D9) and a keyboard-reachable user menu', async () => {
     await signedIn()
     const nav = screen.getByRole('navigation', { name: 'Main' })
-    expect(within(nav).getAllByRole('link').map((l) => l.textContent)).toEqual(['Servers'])
+    expect(within(nav).getAllByRole('link').map((l) => l.textContent)).toEqual(['Servers', 'Nodes'])
     const button = screen.getByRole('button', { name: /Trevor/ })
     expect(button).toHaveAttribute('aria-expanded', 'false')
     button.focus()

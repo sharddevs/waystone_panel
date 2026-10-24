@@ -13,6 +13,8 @@ const actionNames: Record<string, string> = {
   'server.start': 'Start server',
   'server.stop': 'Stop server',
   'server.restart': 'Restart server',
+  'server.install': 'Install server',
+  'server.accept_eula': 'Accept EULA',
 }
 
 // actionName is "Start server" for server.start. An action this page
@@ -31,6 +33,10 @@ function actionPast(action: string): string {
       return 'stopped'
     case 'server.restart':
       return 'restarted'
+    case 'server.install':
+      return 'was installed'
+    case 'server.accept_eula':
+      return 'had its EULA accepted'
     default:
       return 'did what was asked'
   }
@@ -143,6 +149,24 @@ export function errorText(e: unknown): string {
       return 'Someone already resolved this operation.'
     case 'not_uncertain':
       return "This operation's outcome isn't uncertain."
+    case 'node_revoked':
+      return 'The node was revoked, so Waystone can no longer manage its servers.'
+    case 'server_running':
+      return 'The server is running. Stop it first.'
+    case 'not_installed':
+      return "The server isn't installed yet."
+    case 'eula_not_accepted':
+      return "The Minecraft EULA hasn't been accepted for this server yet."
+    case 'already_accepted':
+      return 'The EULA was already accepted for this server.'
+    case 'port_taken':
+      return 'Another server on this node already uses that port.'
+    case 'node_full':
+      return 'This node already has as many servers as it can manage.'
+    case 'enrollment_unavailable':
+      return "Waystone isn't listening for other machines, so it can't add a node yet."
+    case 'bad_request':
+      return 'Waystone refused the request as it was sent. Check the fields and try again.'
     case 'csrf_failed':
       return 'Your page is out of date. Reload it and try again.'
     case 'bad_response':

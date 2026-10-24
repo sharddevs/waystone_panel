@@ -2,7 +2,19 @@
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { decodeErrorBody, decodeOperation, decodeOperationList, decodeServer, decodeServerList, decodeSession } from './api'
+import {
+  decodeCreatedServer,
+  decodeEnrollmentList,
+  decodeErrorBody,
+  decodeNewEnrollment,
+  decodeNode,
+  decodeNodeList,
+  decodeOperation,
+  decodeOperationList,
+  decodeServer,
+  decodeServerList,
+  decodeSession,
+} from './api'
 import type { Decoder } from './decode'
 
 // Q9: the Go tests write these files from the real types (go test
@@ -15,6 +27,11 @@ const files: [string, Decoder<unknown>][] = [
   ['internal/view/testdata/servers.json', decodeServerList],
   ['internal/view/testdata/operation.json', decodeOperation],
   ['internal/view/testdata/operations.json', decodeOperationList],
+  ['internal/view/testdata/node.json', decodeNode],
+  ['internal/view/testdata/nodes.json', decodeNodeList],
+  ['internal/view/testdata/enrollments.json', decodeEnrollmentList],
+  ['internal/view/testdata/enrollment_new.json', decodeNewEnrollment],
+  ['internal/view/testdata/created.json', decodeCreatedServer],
   ['internal/service/testdata/error.json', decodeErrorBody],
   ['internal/web/testdata/error.json', decodeErrorBody],
   ['internal/session/testdata/session.json', decodeSession],

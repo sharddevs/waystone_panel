@@ -3,6 +3,7 @@
 import { useEffect, useId, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApiError, type Operation } from '../api'
+import { CopyButton } from '../components/CopyButton'
 import { StatusLine } from '../components/StatusMark'
 import { actionName, errorText, formatTime, isActive, stateMark, stateWords, took, uncertainText } from '../format'
 import { useLive } from '../live'
@@ -136,29 +137,6 @@ export function OperationPage({ id }: { id: string }) {
           <span className="mono">{o.id}</span> <CopyButton text={o.id} />
         </dd>
       </dl>
-    </>
-  )
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [done, setDone] = useState<'copied' | 'failed' | null>(null)
-  return (
-    <>
-      <button
-        type="button"
-        className="button small"
-        onClick={() => {
-          navigator.clipboard.writeText(text).then(
-            () => setDone('copied'),
-            () => setDone('failed'),
-          )
-        }}
-      >
-        Copy
-      </button>
-      <span className="meta" aria-live="polite">
-        {done === 'copied' ? ' Copied.' : done === 'failed' ? " Couldn't copy." : ''}
-      </span>
     </>
   )
 }

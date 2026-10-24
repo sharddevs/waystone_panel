@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ApiError, isServerAction, type Dimension, type Operation, type Server, type ServerAction } from '../api'
+import { ApiError, isServerAction, type Dimension, type Operation, type PageAction, type Server, type ServerAction } from '../api'
 import { StatusLine } from '../components/StatusMark'
 import { actionName, ago, errorText, formatTime, gameLine, isActive, outcome, stateMark, stateWords, took } from '../format'
 import { useLive } from '../live'
@@ -14,11 +14,16 @@ import { Problem } from './Problem'
 // returns at most 100 (store.MaxListLimit).
 const historySteps = [10, 50, 100]
 
-const buttonWords: Record<ServerAction, { idle: string; busy: string }> = {
+const buttonWords: Record<PageAction, { idle: string; busy: string }> = {
   start: { idle: 'Start', busy: 'Starting…' },
   stop: { idle: 'Stop', busy: 'Stopping…' },
   restart: { idle: 'Restart', busy: 'Restarting…' },
+  install: { idle: 'Install', busy: 'Installing…' },
+  accept_eula: { idle: 'Accept the EULA', busy: 'Accepting…' },
 }
+
+// eulaURL is Mojang's EULA, the link a server's own eula.txt names.
+export const eulaURL = 'https://aka.ms/MinecraftEULA'
 
 export function ServerPageRoute() {
   const { id = '' } = useParams()
@@ -32,7 +37,7 @@ export function ServerPage({ id }: { id: string }) {
   const limit = historySteps[step] ?? 10
   const server = useLive(() => client.server(id))
   const history = useLive(() => client.operations({ serverId: id, limit }))
-  const [pending, setPending] = useState<ServerAction | null>(null)
+  const [pending, setPending] = useState<PageAction | null>(null)
   const [accepted, setAccepted] = useState<Operation | null>(null)
   const [actionError, setActionError] = useState<ApiError | null>(null)
   const { reload: reloadServer } = server
@@ -48,7 +53,7 @@ export function ServerPage({ id }: { id: string }) {
   }, [step, reloadHistory])
 
   const act = useCallback(
-    async (action: ServerAction) => {
+    async (action: PageAction) => {
       setPending(action)
       setActionError(null)
       try {
@@ -128,6 +133,7 @@ export function ServerPage({ id }: { id: string }) {
         </div>
       )}
 
+      <Setup server={s} pending={pending} onAct={(a) => void act(a)} />
       <Actions server={s} pending={pending} onAct={(a) => void act(a)} />
       <div aria-live="polite">
         {actionError && (
@@ -230,11 +236,61 @@ function Facts<S extends string>({ label, dim, now }: { label: string; dim: Dime
   )
 }
 
+// Setup is what a new server needs before it can start (D9): the
+// install, then the Minecraft EULA, each shown only while it's missing.
+// Like the buttons, a control is there only with permission, and
+// disabled with its reason when the state doesn't allow it.
+function Setup({ server: s, pending, onAct }: { server: Server; pending: PageAction | null; onAct: (a: PageAction) => void }) {
+  const control = (action: 'install' | 'accept_eula') => {
+    const a = s.actions.find((x) => x.action === action)
+    if (!a) return <p className="meta">An admin has to do this.</p>
+    return (
+      <>
+        <button type="button" className="button primary" disabled={!a.allowed || pending !== null} onClick={() => onAct(action)}>
+          {pending === action ? buttonWords[action].busy : buttonWords[action].idle}
+        </button>
+        {!a.allowed && <p className="meta reason">{reasonText(a.reason)}</p>}
+      </>
+    )
+  }
+  if (!s.installed) {
+    return (
+      <section className="card setup" aria-labelledby="setup-title">
+        <h2 id="setup-title" className="section-title">
+          Not installed yet
+        </h2>
+        <p>
+          Waystone downloads {gameLine(s)} from Mojang, checks it against the version it ships with, and installs it on {s.node.name}.
+          Creating a server starts the install; if it didn't finish, install again.
+        </p>
+        {control('install')}
+      </section>
+    )
+  }
+  if (!s.eula_accepted) {
+    return (
+      <section className="card setup" aria-labelledby="setup-title">
+        <h2 id="setup-title" className="section-title">
+          Accept the Minecraft EULA
+        </h2>
+        <p>
+          The Minecraft server only starts once you accept Mojang's{' '}
+          <a href={eulaURL} target="_blank" rel="noreferrer">
+            End User License Agreement
+          </a>
+          . Waystone records who accepted it, and when.
+        </p>
+        {control('accept_eula')}
+      </section>
+    )
+  }
+  return null
+}
+
 // Actions come from the server's actions list (B8): permission → not
-// there at all, state → disabled with its reason underneath.
-// Install and the EULA get their own controls in 6d; only the buttons'
-// actions show here.
-function Actions({ server: s, pending, onAct }: { server: Server; pending: ServerAction | null; onAct: (a: ServerAction) => void }) {
+// there at all, state → disabled with its reason underneath. Install
+// and the EULA are in Setup above.
+function Actions({ server: s, pending, onAct }: { server: Server; pending: PageAction | null; onAct: (a: ServerAction) => void }) {
   const actions = s.actions.flatMap((a) => (isServerAction(a.action) ? [{ ...a, action: a.action }] : []))
   if (actions.length === 0) return null
   const reasons = [...new Set(actions.filter((a) => !a.allowed).map((a) => reasonText(a.reason)))]
@@ -245,7 +301,7 @@ function Actions({ server: s, pending, onAct }: { server: Server; pending: Serve
           <button
             key={a.action}
             type="button"
-            className={a.action === 'start' ? 'button primary' : 'button'}
+            className={a.action === 'start' && s.installed && s.eula_accepted ? 'button primary' : 'button'}
             disabled={!a.allowed || pending !== null}
             onClick={() => onAct(a.action)}
           >

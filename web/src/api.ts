@@ -27,6 +27,18 @@ export function isServerAction(a: string): a is ServerAction {
   return (serverActions as readonly string[]).includes(a)
 }
 
+// PageAction is anything the server page can ask for: the buttons, the
+// install, and the EULA (6d).
+export type PageAction = ListedAction
+
+const actionVerbs: Record<PageAction, string> = {
+  start: 'start',
+  stop: 'stop',
+  restart: 'restart',
+  install: 'install',
+  accept_eula: 'accept-eula',
+}
+
 export interface Actor {
   type: string
   id: string
@@ -83,6 +95,52 @@ export interface Server {
   actions: { action: ListedAction; allowed: boolean; reason?: string }[]
 }
 
+// NodeDetail is a node on the Nodes page (6b, view.NodeDetail).
+export interface NodeDetail {
+  id: string
+  name: string
+  reachability: { state: 'reachable' | 'unreachable'; last_seen_at: string | null }
+  link: 'local' | 'mtls'
+  agent_version: string | null
+  capabilities: string[]
+  enrolled_at: string | null
+  revoked_at: string | null
+  server_count: number
+  actions: { action: 'revoke'; allowed: boolean; reason?: string }[]
+}
+
+export const enrollmentStates = ['pending', 'used', 'expired'] as const
+
+export interface Enrollment {
+  id: string
+  name: string
+  created_by: Actor
+  created_at: string
+  expires_at: string
+  used_at: string | null
+  node_id: string | null
+  state: (typeof enrollmentStates)[number]
+}
+
+// NewEnrollment is the one answer that carries the bundle (D2).
+export interface NewEnrollment {
+  enrollment: Enrollment
+  bundle: string
+  command: string
+}
+
+export interface NewServer {
+  node_id: string
+  name: string
+  port: number
+  heap_mib: number
+}
+
+export interface CreatedServer {
+  server: Server
+  operation: Operation
+}
+
 export interface Session {
   user: { id: string; display_name: string }
   csrf_token: string
@@ -117,6 +175,8 @@ export const decodeOperation: Decoder<Operation> = object(
   { phase: str, error_code: str, error_summary: str },
 )
 
+const reachability = object({ state: oneOf(['reachable', 'unreachable'] as const), last_seen_at: nullable(time) })
+
 function dimension<S extends string>(states: readonly S[]): Decoder<Dimension<S>> {
   return object<{ state: S; since: string | null; observed_at: string | null }, { last_reported: S }>(
     { state: oneOf(states), since: nullable(time), observed_at: nullable(time) },
@@ -130,7 +190,7 @@ export const decodeServer: Decoder<Server> = object({
   node: object({
     id: str,
     name: str,
-    reachability: object({ state: oneOf(['reachable', 'unreachable'] as const), last_seen_at: nullable(time) }),
+    reachability,
   }),
   profile: object({ id: str, version: nullable(str) }),
   runtime: str,
@@ -146,6 +206,36 @@ export const decodeServer: Decoder<Server> = object({
 
 export const decodeServerList: Decoder<{ servers: Server[] }> = object({ servers: array(decodeServer) })
 export const decodeOperationList: Decoder<{ operations: Operation[] }> = object({ operations: array(decodeOperation) })
+
+export const decodeNode: Decoder<NodeDetail> = object({
+  id: str,
+  name: str,
+  reachability,
+  link: oneOf(['local', 'mtls'] as const),
+  agent_version: nullable(str),
+  capabilities: array(str),
+  enrolled_at: nullable(time),
+  revoked_at: nullable(time),
+  server_count: int,
+  actions: array(object({ action: oneOf(['revoke'] as const), allowed: bool }, { reason: str })),
+})
+
+export const decodeNodeList: Decoder<{ nodes: NodeDetail[] }> = object({ nodes: array(decodeNode) })
+
+export const decodeEnrollment: Decoder<Enrollment> = object({
+  id: str,
+  name: str,
+  created_by: actor,
+  created_at: time,
+  expires_at: time,
+  used_at: nullable(time),
+  node_id: nullable(str),
+  state: oneOf(enrollmentStates),
+})
+
+export const decodeEnrollmentList: Decoder<{ enrollments: Enrollment[] }> = object({ enrollments: array(decodeEnrollment) })
+export const decodeNewEnrollment: Decoder<NewEnrollment> = object({ enrollment: decodeEnrollment, bundle: str, command: str })
+export const decodeCreatedServer: Decoder<CreatedServer> = object({ server: decodeServer, operation: decodeOperation })
 
 export const decodePreferences: Decoder<Preferences> = object({
   theme: oneOf(themes),
@@ -288,13 +378,33 @@ export class Client {
   operation(id: string): Promise<Operation> {
     return this.request('GET', `/api/v1/operations/${encodeURIComponent(id)}`, decodeOperation)
   }
-  act(serverId: string, action: ServerAction, csrf: string, idempotencyKey: string): Promise<Operation> {
-    return this.request('POST', `/api/v1/servers/${encodeURIComponent(serverId)}/${action}`, decodeOperation, {
+  act(serverId: string, action: PageAction, csrf: string, idempotencyKey: string): Promise<Operation> {
+    return this.request('POST', `/api/v1/servers/${encodeURIComponent(serverId)}/${actionVerbs[action]}`, decodeOperation, {
       body: {},
       csrf,
       idempotencyKey,
     })
   }
+  // createServer answers with the server and its first install
+  // operation; the same key and body again is the same answer (6c).
+  createServer(body: NewServer, csrf: string, idempotencyKey: string): Promise<CreatedServer> {
+    return this.request('POST', '/api/v1/servers', decodeCreatedServer, { body, csrf, idempotencyKey })
+  }
+
+  // Nodes (6b). Admins only; anyone else gets 403 forbidden.
+  nodes(): Promise<{ nodes: NodeDetail[] }> {
+    return this.request('GET', '/api/v1/nodes', decodeNodeList)
+  }
+  revokeNode(id: string, csrf: string): Promise<NodeDetail> {
+    return this.request('POST', `/api/v1/nodes/${encodeURIComponent(id)}/revoke`, decodeNode, { body: {}, csrf })
+  }
+  enrollments(): Promise<{ enrollments: Enrollment[] }> {
+    return this.request('GET', '/api/v1/nodes/enrollments', decodeEnrollmentList)
+  }
+  createEnrollment(name: string, csrf: string): Promise<NewEnrollment> {
+    return this.request('POST', '/api/v1/nodes/enrollments', decodeNewEnrollment, { body: { name }, csrf })
+  }
+
   resolve(operationId: string, outcome: 'succeeded' | 'failed', note: string, csrf: string, idempotencyKey: string): Promise<Operation> {
     return this.request('POST', `/api/v1/operations/${encodeURIComponent(operationId)}/resolve`, decodeOperation, {
       body: { outcome, note },

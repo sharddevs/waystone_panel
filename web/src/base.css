@@ -611,3 +611,219 @@ a.button {
     display: none;
   }
 }
+
+/* Stage 6d: page heads with a button, nodes, create form, setup cards. */
+.head-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.head-side .meta {
+  margin: 0;
+}
+.button.danger {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.field select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.field .narrow {
+  max-width: 12em;
+}
+.field .meta {
+  margin: 0;
+}
+.field [aria-invalid='true'] {
+  border-color: var(--bad);
+}
+.problem-text {
+  color: var(--bad);
+}
+.create-form {
+  max-width: 34em;
+  margin-top: var(--pad);
+}
+.create-form .facts {
+  margin: 0 0 8px;
+}
+.setup {
+  margin-top: var(--pad);
+  border-left: 3px solid var(--warn);
+}
+.setup .section-title {
+  margin-top: 0;
+}
+.setup p {
+  margin: 0 0 12px;
+}
+.setup .reason {
+  margin: 8px 0 0;
+}
+
+.node-head,
+.node-row {
+  display: grid;
+  grid-template-columns: minmax(10em, 1.4fr) 1.6fr 0.8fr 1fr 0.8fr 6em;
+  gap: 12px;
+  align-items: center;
+  padding: var(--row) 14px;
+}
+.node-head {
+  color: var(--fg-3);
+  font-size: 0.88em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-bottom: 6px;
+}
+.node-list,
+.token-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.node-list > li + li,
+.token-list > li + li {
+  border-top: 1px solid var(--border);
+}
+.cell-agent,
+.cell-enrolled,
+.cell-count {
+  color: var(--fg-2);
+}
+.cell-revoke {
+  justify-self: end;
+}
+.phone-label {
+  display: none;
+}
+.tag {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  font-size: 0.8em;
+  font-weight: 400;
+}
+.confirm {
+  margin: 0 14px var(--row);
+  padding: 12px var(--pad);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--bad);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.confirm p {
+  margin: 0 0 8px;
+}
+.token-row {
+  display: grid;
+  grid-template-columns: minmax(8em, 1fr) 6em 3fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: var(--row) 14px;
+}
+.token-row .meta {
+  margin: 0;
+}
+.add-node {
+  margin-bottom: var(--pad);
+}
+.add-node .section-title {
+  margin-top: 0;
+}
+.add-node form {
+  max-width: 30em;
+}
+.steps {
+  margin: 0 0 12px;
+  padding-left: 1.4em;
+}
+.steps li + li {
+  margin-top: 12px;
+}
+.steps p {
+  margin: 0 0 6px;
+}
+.command {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.bundle {
+  display: block;
+  width: 100%;
+  margin: 6px 0;
+  font-size: 0.88em;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  resize: none;
+  word-break: break-all;
+}
+.add-node .note {
+  margin: 0 0 12px;
+}
+
+@media (max-width: 600px) {
+  .page-head {
+    flex-wrap: wrap;
+  }
+  .node-head {
+    display: none;
+  }
+  .node-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'name revoke' 'status revoke' 'agent agent' 'enrolled enrolled' 'count count';
+    gap: 4px;
+  }
+  .node-row .cell-name {
+    grid-area: name;
+  }
+  .node-row .cell-status {
+    grid-area: status;
+  }
+  .cell-agent {
+    grid-area: agent;
+    font-size: 0.88em;
+  }
+  .cell-enrolled {
+    grid-area: enrolled;
+    font-size: 0.88em;
+  }
+  .cell-count {
+    grid-area: count;
+    font-size: 0.88em;
+  }
+  .cell-revoke {
+    grid-area: revoke;
+  }
+  .phone-label {
+    display: inline;
+  }
+  .token-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'name state' 'meta meta';
+    gap: 4px 12px;
+  }
+  .token-row .cell-name {
+    grid-area: name;
+  }
+  .cell-token-state {
+    grid-area: state;
+  }
+  .token-row .meta {
+    grid-area: meta;
+  }
+}

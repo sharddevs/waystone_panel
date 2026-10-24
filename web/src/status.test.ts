@@ -97,3 +97,27 @@ it('reasonText', () => {
   expect(reasonText('something_new')).toBe('Unavailable right now.')
   expect(reasonText(undefined)).toBe('Unavailable right now.')
 })
+
+// 6d: a new server reads "Not installed" until it is, and a stopped one
+// that waits for the EULA says so. Unreachable and a live process still
+// come first.
+describe('install and EULA in the summary', () => {
+  it('not installed', () => {
+    for (const p of ['stopped', 'unknown', 'failed'] as const) {
+      const sum = summarize({ ...server({ process: p }), installed: false, eula_accepted: false }, now)
+      expect([sum.title, sum.mark]).toEqual(['Not installed', 'stopped'])
+    }
+    expect(summarize({ ...server({ process: 'running', readiness: 'ready' }), installed: false }, now).title).toBe('Online — ready for players')
+    expect(summarize({ ...server({ process: 'stopped', reachable: false }), installed: false }, now).title).toBe('Status unknown — node unreachable')
+  })
+  it('waiting for the EULA', () => {
+    expect(summarize({ ...server({ process: 'stopped' }), eula_accepted: false }, now).detail).toBe('It starts once the Minecraft EULA is accepted.')
+    expect(summarize(server({ process: 'stopped' }), now).detail).toBe('Ready to start.')
+  })
+  it('the 6c reasons read as sentences', () => {
+    expect(reasonText('not_installed')).toBe('Unavailable until the server is installed.')
+    expect(reasonText('eula_not_accepted')).toBe('Unavailable until the Minecraft EULA is accepted.')
+    expect(reasonText('node_revoked')).toBe('Unavailable: the node was revoked.')
+    expect(reasonText('server_running')).toBe('Unavailable while the server is running.')
+  })
+})

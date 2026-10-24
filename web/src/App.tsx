@@ -3,7 +3,9 @@
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router'
 import { Frame } from './components/Frame'
+import { CreateServer } from './pages/CreateServer'
 import { Login } from './pages/Login'
+import { NodesPage } from './pages/NodesPage'
 import { NotFound } from './pages/NotFound'
 import { OperationPageRoute } from './pages/OperationPage'
 import { ServerList } from './pages/ServerList'
@@ -42,8 +44,10 @@ export function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<RequireSession><ServerList /></RequireSession>} />
+      <Route path="/servers/new" element={<RequireSession><CreateServer /></RequireSession>} />
       <Route path="/servers/:id" element={<RequireSession><ServerPageRoute /></RequireSession>} />
       <Route path="/operations/:id" element={<RequireSession><OperationPageRoute /></RequireSession>} />
+      <Route path="/nodes" element={<RequireSession><NodesPage /></RequireSession>} />
       <Route path="*" element={<RequireSession><NotFound /></RequireSession>} />
     </Routes>
   )

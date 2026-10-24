@@ -10,7 +10,7 @@ import { summarize } from '../status'
 import { Problem } from './Problem'
 
 // The server list, the landing page (wireframes §2, W1). The whole row
-// is the link; there are no action buttons here.
+// is the link; the only button is Create server (D9).
 export function ServerList() {
   const { client } = useSignedIn()
   const live = useLive(() => client.servers())
@@ -27,7 +27,12 @@ export function ServerList() {
     <>
       <div className="page-head">
         <h1 className="page-title">Servers</h1>
-        {count !== undefined && <p className="meta">{count === 1 ? '1 server' : `${count} servers`}</p>}
+        <div className="head-side">
+          {count !== undefined && <p className="meta">{count === 1 ? '1 server' : `${count} servers`}</p>}
+          <Link className="button primary" to="/servers/new">
+            Create server
+          </Link>
+        </div>
       </div>
 
       {servers === undefined && live.error && (
@@ -47,7 +52,7 @@ export function ServerList() {
       )}
 
       {servers !== undefined && servers.length === 0 && (
-        <p className="empty">No servers yet. Creating servers from Waystone arrives in a later release.</p>
+        <p className="empty">No servers yet. Create one, and Waystone installs it on the node you pick.</p>
       )}
 
       {servers !== undefined && servers.length > 0 && (

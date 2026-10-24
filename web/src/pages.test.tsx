@@ -99,8 +99,8 @@ describe('server list (wireframes §2)', () => {
     expect(busy).toHaveAttribute('aria-busy', 'true')
     expect(busy.querySelectorAll('li')).toHaveLength(3)
     await act(async () => release())
-    expect(await screen.findByText('No servers yet. Creating servers from Waystone arrives in a later release.')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /create/i })).toBeNull()
+    expect(await screen.findByText('No servers yet. Create one, and Waystone installs it on the node you pick.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Create server' })).toHaveAttribute('href', '/servers/new')
   })
 
   it("can't load: says so with the request ID, and tries again", async () => {

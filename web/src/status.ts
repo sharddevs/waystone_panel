@@ -69,6 +69,13 @@ export function summarize(s: Server, now: Date): Summary {
     return { mark: 'unknown', tone: 'unk', title: 'Status unknown — node unreachable', detail }
   }
 
+  // A new server: nothing to run until it is installed (6c), and it
+  // won't start until the EULA is accepted. A process that is up is
+  // still reported as it is below.
+  if (!s.installed && (proc.state === 'stopped' || proc.state === 'unknown' || proc.state === 'failed')) {
+    return { mark: 'stopped', tone: 'unk', title: 'Not installed', detail: 'Waystone installs the server before it can start.' }
+  }
+
   switch (proc.state) {
     case 'unknown':
       return {
@@ -88,7 +95,12 @@ export function summarize(s: Server, now: Date): Summary {
           detail: 'Waystone expected this server to be running.',
         }
       }
-      return { mark: 'stopped', tone: 'unk', title: 'Stopped', detail: 'Ready to start.' }
+      return {
+        mark: 'stopped',
+        tone: 'unk',
+        title: 'Stopped',
+        detail: s.eula_accepted ? 'Ready to start.' : 'It starts once the Minecraft EULA is accepted.',
+      }
     case 'starting':
       return { mark: 'transition', tone: 'warn', title: 'Starting server…', detail: 'Waiting for the service to start.' }
     case 'stopping':
@@ -137,6 +149,16 @@ export function reasonText(reason: string | undefined): string {
       return "Unavailable until an admin resolves the last operation's uncertain outcome."
     case 'operation_in_progress':
       return 'Unavailable while another operation on this server is in progress.'
+    case 'node_revoked':
+      return 'Unavailable: the node was revoked.'
+    case 'not_installed':
+      return 'Unavailable until the server is installed.'
+    case 'eula_not_accepted':
+      return 'Unavailable until the Minecraft EULA is accepted.'
+    case 'server_running':
+      return 'Unavailable while the server is running.'
+    case 'already_accepted':
+      return 'The EULA is already accepted.'
     default:
       return 'Unavailable right now.'
   }

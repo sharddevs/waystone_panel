@@ -5,12 +5,13 @@ import { Link, useLocation } from 'react-router'
 import { UserMenu } from './UserMenu'
 
 // Frame is every screen after login (wireframes §0): the top bar with
-// the one nav item of v0.1 and the user menu, then the page.
+// Servers and Nodes (D9) and the user menu, then the page.
 export function Frame({ children }: { children: ReactNode }) {
   // Servers stays the current section on a server's page and on an
   // operation's page: both are reached from it.
   const { pathname } = useLocation()
   const inServers = pathname === '/' || pathname.startsWith('/servers/') || pathname.startsWith('/operations/')
+  const inNodes = pathname === '/nodes'
   return (
     <>
       <a className="skip-link" href="#main">
@@ -23,6 +24,9 @@ export function Frame({ children }: { children: ReactNode }) {
         <nav aria-label="Main">
           <Link to="/" className={inServers ? 'nav-link active' : 'nav-link'} aria-current={inServers ? 'page' : undefined}>
             Servers
+          </Link>
+          <Link to="/nodes" className={inNodes ? 'nav-link active' : 'nav-link'} aria-current={inNodes ? 'page' : undefined}>
+            Nodes
           </Link>
         </nav>
         <UserMenu />
