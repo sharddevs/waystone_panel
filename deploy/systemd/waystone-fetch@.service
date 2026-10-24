@@ -32,6 +32,9 @@ PrivateDevices=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 # Network, but nothing on this host or its link (audit 6c-I6).
 IPAddressDeny=localhost link-local multicast
+# Except the systemd-resolved stub: Go's own resolver reads resolv.conf,
+# which points there on Ubuntu. Allow wins over deny.
+IPAddressAllow=127.0.0.53/32
 ProtectProc=invisible
 ProcSubset=pid
 PrivateUsers=yes

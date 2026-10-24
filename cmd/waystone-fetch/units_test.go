@@ -76,6 +76,7 @@ func TestFetchUnits(t *testing.T) {
 		"Service.CapabilityBoundingSet":   "",
 		"Service.ProtectSystem":           "strict",
 		"Service.IPAddressDeny":           "localhost link-local multicast",
+		"Service.IPAddressAllow":          "127.0.0.53/32",
 		"Service.ProtectProc":             "invisible",
 		"Service.ProcSubset":              "pid",
 		"Service.PrivateUsers":            "yes",
