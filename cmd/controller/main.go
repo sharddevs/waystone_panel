@@ -32,7 +32,9 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/agentlink"
 	"github.com/sharddevs/waystone_panel/internal/agenttls"
 	"github.com/sharddevs/waystone_panel/internal/api"
+	"github.com/sharddevs/waystone_panel/internal/fetch"
 	"github.com/sharddevs/waystone_panel/internal/ids"
+	"github.com/sharddevs/waystone_panel/internal/profile/minecraft"
 	"github.com/sharddevs/waystone_panel/internal/sdlisten"
 	"github.com/sharddevs/waystone_panel/internal/service"
 	"github.com/sharddevs/waystone_panel/internal/session"
@@ -336,7 +338,11 @@ func run(args []string, stderr io.Writer) int {
 	var link *agentlink.Server
 	var enrollAt *service.AgentLink
 	if agentListener != nil || socks.agentTCP != nil {
-		linkCfg := agentlink.Config{Store: db, Version: version}
+		linkCfg := agentlink.Config{Store: db, Version: version,
+			// A jar the cache doesn't have comes from waystone-fetch (6c-3).
+			Fetch: func(ctx context.Context, art minecraft.Artifact) (string, error) {
+				return fetch.Ask(ctx, fetch.DefaultSocket, fetch.DefaultDir, art)
+			}}
 		if agentListener != nil {
 			linkCfg.NodeID, linkCfg.AgentUID = *agentNode, uint32(*agentUID)
 		}

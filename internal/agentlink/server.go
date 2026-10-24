@@ -98,6 +98,10 @@ type Config struct {
 	// minecraft.Pinned when nil (tests pin a small one).
 	ArtifactDir string
 	Artifacts   []minecraft.Artifact
+	// Fetch asks for an artifact the cache doesn't have and returns where
+	// the fetched copy waits (6c-3): fetch.Ask with the fetch service's
+	// socket. nil means a missing jar is artifact_unavailable.
+	Fetch func(ctx context.Context, art minecraft.Artifact) (string, error)
 
 	// For tests; zero values mean the real thing.
 	Nodes            NodeLookup                     // Store
@@ -136,6 +140,9 @@ type Server struct {
 	// artifactDir and artifacts: FetchArtifact's cache and pins (6c-2).
 	artifactDir string
 	artifacts   []minecraft.Artifact
+	fetch       func(ctx context.Context, art minecraft.Artifact) (string, error)
+	// fillSem lets one fill run at a time; shared by every copy.
+	fillSem chan struct{}
 	// nodeID and actor are the node of one stream. They are set only on
 	// the copy forNode makes for that stream, never on the shared Server.
 	nodeID         string
@@ -187,6 +194,8 @@ func New(cfg Config) (*Server, error) {
 		version:        cfg.Version,
 		artifactDir:    cfg.ArtifactDir,
 		artifacts:      cfg.Artifacts,
+		fetch:          cfg.Fetch,
+		fillSem:        make(chan struct{}, 1),
 		log:            cfg.Log,
 		now:            cfg.Now,
 		helloTimeout:   cfg.HelloTimeout,

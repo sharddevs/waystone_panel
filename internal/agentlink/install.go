@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"google.golang.org/grpc/codes"
 
@@ -95,6 +96,38 @@ func (s *Server) GetInstallSpec(ctx context.Context, req *agentv1.GetInstallSpec
 	}, nil
 }
 
+// FetchWait is the most a FetchArtifact waits for the fetch service.
+const FetchWait = 3 * time.Minute
+
+// fill gets art from the fetch service into the cache (6c-3), one fill
+// at a time. The fetch service's file is only a source: it is opened
+// without following a link, checked as a regular file of the pinned size,
+// and copied into the cache while its SHA-1 and SHA-256 are checked
+// again, so nothing fetch says or names is trusted.
+func (s *Server) fill(ctx context.Context, art minecraft.Artifact) error {
+	select {
+	case s.fillSem <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-s.fillSem }()
+	// Another fill may have finished while this one waited.
+	if _, err := os.Lstat(filepath.Join(s.artifactDir, art.SHA256)); err == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, FetchWait)
+	defer cancel()
+	staged, err := s.fetch(ctx, art)
+	if err != nil {
+		return err
+	}
+	if err := cacheArtifact(staged, s.artifactDir, art); err != nil {
+		return err
+	}
+	s.logf("agent_link=artifact_cached sha256=%s version=%s", art.SHA256, art.Version)
+	return nil
+}
+
 // FetchArtifact streams a pinned jar from the cache to an agent running
 // an install of that jar's version. It hashes what it sends: a cached
 // copy that isn't the pinned one ends the stream with artifact_mismatch,
@@ -125,6 +158,11 @@ func (s *Server) FetchArtifact(req *agentv1.FetchArtifactRequest, stream agentv1
 
 	path := filepath.Join(s.artifactDir, art.SHA256)
 	f, err := openArtifact(path, art.Size)
+	if errors.Is(err, os.ErrNotExist) && s.fetch != nil {
+		if err = s.fill(ctx, art); err == nil {
+			f, err = openArtifact(path, art.Size)
+		}
+	}
 	if err != nil {
 		s.logf("agent_link=artifact_unavailable node=%s op=%s sha256=%s error=%q", n.NodeID, req.GetOperationId(), art.SHA256, err.Error())
 		return streamError(codes.NotFound, MsgArtifactUnavailable)

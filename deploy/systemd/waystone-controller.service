@@ -27,6 +27,11 @@ Sockets=waystone-controller-api.socket waystone-controller-web.socket waystone-c
 # pinned jars an install serves (6c-2): .../artifacts, one file per SHA-256.
 StateDirectory=waystone-controller waystone-controller/artifacts
 StateDirectoryMode=0700
+# A jar it doesn't have comes from waystone-fetch@.service (6c-3), which
+# leaves it in /var/lib/waystone-fetch, readable by this group only. The
+# controller asks on /run/waystone-fetch/fetch.sock (group
+# waystone-controller) and copies the file after checking it.
+SupplementaryGroups=waystone-fetch
 Restart=on-failure
 RestartSec=2
 

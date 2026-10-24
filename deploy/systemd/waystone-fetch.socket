@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The fetch service's socket (6c-3). Only the controller may ask: the
+# socket is root:waystone-controller 0660. Each connection starts one
+# waystone-fetch@.service, one at a time.
+[Unit]
+Description=Waystone fetch service socket
+
+[Socket]
+ListenStream=/run/waystone-fetch/fetch.sock
+SocketUser=root
+SocketGroup=waystone-controller
+SocketMode=0660
+DirectoryMode=0755
+Accept=yes
+MaxConnections=1
+
+[Install]
+WantedBy=sockets.target

@@ -14,6 +14,7 @@ package agentlink
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -43,7 +44,9 @@ var testJar = bytes.Repeat([]byte("waystone test jar\n"), 6000)
 
 func testArtifact() minecraft.Artifact {
 	sum := sha256.Sum256(testJar)
-	return minecraft.Artifact{Version: "26.3", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(testJar)), Runtime: "java25"}
+	s1 := sha1.Sum(testJar)
+	return minecraft.Artifact{Version: "26.3", SHA1: hex.EncodeToString(s1[:]), SHA256: hex.EncodeToString(sum[:]),
+		Size: int64(len(testJar)), Runtime: "java25"}
 }
 
 // setupInstall is setup with the test pin and a cache holding its jar.

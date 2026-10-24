@@ -175,6 +175,7 @@ func TestAgentTCPUnits(t *testing.T) {
 		"Service.RestrictAddressFamilies": "AF_UNIX",
 		"Service.StateDirectory":          "waystone-controller waystone-controller/artifacts",
 		"Service.StateDirectoryMode":      "0700",
+		"Service.SupplementaryGroups":     "waystone-fetch",
 	} {
 		if u[k] != v {
 			t.Errorf("controller: %s = %q, want %q", k, u[k], v)
