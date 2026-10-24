@@ -31,3 +31,22 @@ func TestPin(t *testing.T) {
 		t.Errorf("default properties: %v", err)
 	}
 }
+
+func TestPinnedLookups(t *testing.T) {
+	if a, ok := ForVersion(Pinned, PinnedVersion); !ok || a.SHA256 != PinnedSHA256 || a.Size != PinnedSize || a.Runtime != PinnedRuntime {
+		t.Errorf("ForVersion: %+v %v", a, ok)
+	}
+	if a, ok := ForSHA256(Pinned, PinnedSHA256); !ok || a.Version != PinnedVersion {
+		t.Errorf("ForSHA256: %+v %v", a, ok)
+	}
+	for _, v := range []string{"", "26.2", "26.3 "} {
+		if _, ok := ForVersion(Pinned, v); ok {
+			t.Errorf("version %q found", v)
+		}
+	}
+	for _, h := range []string{"", strings.ToUpper(PinnedSHA256), PinnedSHA1} {
+		if _, ok := ForSHA256(Pinned, h); ok {
+			t.Errorf("hash %q found", h)
+		}
+	}
+}

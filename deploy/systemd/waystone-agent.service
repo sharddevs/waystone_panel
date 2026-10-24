@@ -1,18 +1,23 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # The agent runs as waystone-agent, never as root. It connects out to the
-# controller's agent socket and to the helper; losing either is not fatal,
-# it reconnects. Restart= only covers a crash.
+# controller's agent socket, the helper and the provisioning service;
+# losing any of them is not fatal, it reconnects. Restart= only covers a
+# crash.
 [Unit]
 Description=Waystone agent
-Wants=waystone-helper.socket waystone-controller-agent.socket
-After=waystone-helper.socket waystone-controller-agent.socket
+Wants=waystone-helper.socket waystone-provisioner.socket waystone-controller-agent.socket
+After=waystone-helper.socket waystone-provisioner.socket waystone-controller-agent.socket
 
 [Service]
 Type=simple
 User=waystone-agent
 Group=waystone-agent
 EnvironmentFile=/etc/waystone/agent.env
-ExecStart=/usr/local/bin/waystone-agent -controller /run/waystone-controller/agent.sock -controller-uid ${WAYSTONE_CONTROLLER_UID} -node ${WAYSTONE_NODE_ID}
+ExecStart=/usr/local/bin/waystone-agent -controller /run/waystone-controller/agent.sock -controller-uid ${WAYSTONE_CONTROLLER_UID} -node ${WAYSTONE_NODE_ID} -provisioner /run/waystone-provisioner/provisioner.sock
+# An install's jar waits in staging/ between the controller and the
+# provisioner (6c-2). Nothing else here is writable.
+StateDirectory=waystone-agent waystone-agent/staging
+StateDirectoryMode=0700
 Restart=always
 RestartSec=2
 

@@ -93,9 +93,11 @@ func toStoreReport(r *agentv1.Report) (store.Report, error) {
 
 // commandActions maps an operation's action onto the wire.
 var commandActions = map[store.Action]agentv1.CommandAction{
-	store.ActionStart:   agentv1.CommandAction_COMMAND_ACTION_START,
-	store.ActionStop:    agentv1.CommandAction_COMMAND_ACTION_STOP,
-	store.ActionRestart: agentv1.CommandAction_COMMAND_ACTION_RESTART,
+	store.ActionStart:      agentv1.CommandAction_COMMAND_ACTION_START,
+	store.ActionStop:       agentv1.CommandAction_COMMAND_ACTION_STOP,
+	store.ActionRestart:    agentv1.CommandAction_COMMAND_ACTION_RESTART,
+	store.ActionInstall:    agentv1.CommandAction_COMMAND_ACTION_INSTALL,
+	store.ActionAcceptEula: agentv1.CommandAction_COMMAND_ACTION_ACCEPT_EULA,
 }
 
 // resultCodes is the controller's fixed table from an agent's result code
@@ -116,6 +118,12 @@ var resultCodes = map[agentv1.ResultCode]store.OperationResult{
 		Summary: "The agent doesn't manage this server, so nothing was done."},
 	agentv1.ResultCode_RESULT_CODE_SERVER_BUSY: {State: store.StateFailed, Code: "server_busy",
 		Summary: "An earlier action on this server was still running, so nothing was done."},
+	agentv1.ResultCode_RESULT_CODE_ARTIFACT_UNAVAILABLE: {State: store.StateFailed, Code: "artifact_unavailable",
+		Summary: "The controller couldn't provide the server's jar, so nothing was installed."},
+	agentv1.ResultCode_RESULT_CODE_ARTIFACT_MISMATCH: {State: store.StateFailed, Code: "artifact_mismatch",
+		Summary: "The server's jar didn't match its pinned checksum, so it wasn't installed."},
+	agentv1.ResultCode_RESULT_CODE_SPEC_UNAVAILABLE: {State: store.StateFailed, Code: "spec_unavailable",
+		Summary: "The agent couldn't get the server's install settings, so nothing was done."},
 	agentv1.ResultCode_RESULT_CODE_NO_ANSWER: {State: store.StateUncertain, Code: "no_answer",
 		Summary: "The node's helper didn't answer, so nobody knows whether the action ran."},
 }

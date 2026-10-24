@@ -33,6 +33,7 @@ import (
 	agentv1 "github.com/sharddevs/waystone_panel/gen/waystone/agent/v1"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/peercred"
+	"github.com/sharddevs/waystone_panel/internal/profile/minecraft"
 )
 
 // Limits shared with the controller (R7, R8, R9).
@@ -82,6 +83,15 @@ type Config struct {
 	Runner Runner
 	// Prober is the readiness probe (4d-2): minecraft.StatusPing.
 	Prober Prober
+	// Provisioner installs servers and writes their files (6c-2):
+	// lifecycle.HelperRuntime with the provisioner's socket. nil means
+	// install and accept-EULA commands fail HELPER_UNAVAILABLE.
+	Provisioner Provisioner
+	// StagingDir holds a jar between the controller and the helper
+	// (DefaultStagingDir). Artifacts is the pinned set (minecraft.Pinned
+	// when nil; tests pin a small one).
+	StagingDir string
+	Artifacts  []minecraft.Artifact
 
 	// For tests; zero values mean the real thing.
 	Dial         func(ctx context.Context) (net.Conn, error)      // a Unix dial of ControllerSocket
@@ -94,7 +104,9 @@ type Config struct {
 	SweepTimeout time.Duration                                    // 10 s per sweep
 	// CommandCallTimeout is each command's helper call deadline, 100 s.
 	CommandCallTimeout time.Duration
-	ProbeTimeout       time.Duration // 3 s per readiness probe
+	// InstallTimeout is a whole install's deadline, 10 min.
+	InstallTimeout time.Duration
+	ProbeTimeout   time.Duration // 3 s per readiness probe
 }
 
 // Agent runs the connect loop.
@@ -105,6 +117,9 @@ type Agent struct {
 	helper        Helper
 	runner        Runner
 	prober        Prober
+	provisioner   Provisioner
+	stagingDir    string
+	artifacts     []minecraft.Artifact
 	dial          func(ctx context.Context) (net.Conn, error)
 	creds         credentials.TransportCredentials
 	uidOf         func(net.Conn) (uint32, error)
@@ -116,6 +131,7 @@ type Agent struct {
 	sweepTimeout  time.Duration
 
 	commandCallTimeout time.Duration
+	installTimeout     time.Duration
 	probeTimeout       time.Duration
 }
 
@@ -149,6 +165,9 @@ func New(cfg Config) (*Agent, error) {
 		helper:        cfg.Helper,
 		runner:        cfg.Runner,
 		prober:        cfg.Prober,
+		provisioner:   cfg.Provisioner,
+		stagingDir:    cfg.StagingDir,
+		artifacts:     cfg.Artifacts,
 		dial:          cfg.Dial,
 		uidOf:         cfg.UIDOf,
 		log:           cfg.Log,
@@ -158,6 +177,7 @@ func New(cfg Config) (*Agent, error) {
 		sweepTimeout:  cfg.SweepTimeout,
 
 		commandCallTimeout: cfg.CommandCallTimeout,
+		installTimeout:     cfg.InstallTimeout,
 		probeTimeout:       cfg.ProbeTimeout,
 	}
 	network, address := "unix", cfg.ControllerSocket
@@ -199,6 +219,15 @@ func New(cfg Config) (*Agent, error) {
 	}
 	if a.commandCallTimeout == 0 {
 		a.commandCallTimeout = commandCallTimeout
+	}
+	if a.installTimeout == 0 {
+		a.installTimeout = installTimeout
+	}
+	if a.stagingDir == "" {
+		a.stagingDir = DefaultStagingDir
+	}
+	if a.artifacts == nil {
+		a.artifacts = minecraft.Pinned
 	}
 	if a.probeTimeout == 0 {
 		a.probeTimeout = probeTimeout
@@ -283,9 +312,8 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 		return false, err
 	}
 	interval := time.Duration(reply.GetReportIntervalSeconds()) * time.Second
-	serverIDs := reply.GetServerIds()
-	ports := reply.GetGamePorts()
-	a.logf("agent=connected epoch=%d servers=%d ports=%d interval=%s", reply.GetEpoch(), len(serverIDs), len(ports), interval)
+	a.logf("agent=connected epoch=%d servers=%d ports=%d interval=%s",
+		reply.GetEpoch(), len(reply.GetServerIds()), len(reply.GetGamePorts()), interval)
 
 	// One goroutine sends, because a gRPC stream can't send from several
 	// at once (§5 step 6): reports, progress and results all go through
@@ -334,7 +362,8 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 
 	// The reader takes the controller's commands. Anything else, or a
 	// command no correct controller would send, ends the session.
-	cmds := newCommands(reply.GetEpoch(), serverIDs)
+	cmds := newCommands(reply.GetEpoch(), reply.GetServerIds(), reply.GetGamePorts())
+	cmds.link = agentv1.NewAgentLinkServiceClient(cc)
 	ended := make(chan error, 1)
 	go func() {
 		for {
@@ -357,6 +386,7 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 		if err != nil {
 			return err
 		}
+		serverIDs, ports := cmds.servers()
 		entries := a.sweep(ctx, sweepID, serverIDs)
 		a.readiness(ctx, entries, ports)
 		a.logUnknown(sweepID, entries)
@@ -408,6 +438,13 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 func (a *Agent) command(m *agentv1.ConnectResponse, cmds *commands, deliver func(*agentv1.ConnectRequest) bool) error {
 	if hasUnknownFields(m.ProtoReflect()) {
 		return protocolError("message with unknown fields")
+	}
+	if added := m.GetServerAdded(); added != nil {
+		if err := cmds.add(added); err != nil {
+			return err
+		}
+		a.logf("agent=server_added server=%s port=%d", added.GetServerId(), added.GetGamePort())
+		return nil
 	}
 	cmd := m.GetCommand()
 	if cmd == nil {

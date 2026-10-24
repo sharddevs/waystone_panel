@@ -457,3 +457,74 @@ func TestInstallPhases(t *testing.T) {
 		t.Error("a node's succeeded install didn't mark the server")
 	}
 }
+
+// 6M5: an install's settings go only to the node running it, and only
+// while it runs.
+func TestRunningInstall(t *testing.T) {
+	e := setup(t)
+	epoch := e.mustHello(t, nodeActA)
+	s, op, _, err := e.createServer(adminA, newServer("new", 25565))
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(actor Actor, id string) (InstallSpec, error) {
+		var spec InstallSpec
+		err := e.store.InTenantTx(context.Background(), actor, func(ctx context.Context, tx *Tx) error {
+			var err error
+			spec, err = tx.RunningInstall(ctx, id)
+			return err
+		})
+		return spec, err
+	}
+	if _, err := get(nodeActA, op.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("pending: %v", err)
+	}
+	if c, ok, err := e.claim(nodeActA, epoch); err != nil || !ok || c.OperationID != op.ID || c.GamePort != 25565 {
+		t.Fatalf("claim %+v %v %v", c, ok, err)
+	}
+	spec, err := get(nodeActA, op.ID)
+	if err != nil || spec != (InstallSpec{ServerID: s.ID, Version: "26.3", Port: 25565, HeapMiB: 2048, Motd: "hi"}) {
+		t.Errorf("spec %+v %v", spec, err)
+	}
+	if _, err := get(adminA, op.ID); !errors.Is(err, ErrNotNode) {
+		t.Errorf("a person: %v", err)
+	}
+	if _, err := get(nodeActA, "x"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a bad ID: %v", err)
+	}
+
+	// Another node of the same tenant.
+	other := Actor{Type: ActorNode, ID: remoteA, Name: "remote"}
+	mustExec(t, e.owner, `INSERT INTO waystone.nodes (tenant_id, node_id, name, last_seen_at) VALUES ($1, $2, 'remote', now())`, tenantA, remoteA)
+	mustExec(t, e.owner, `INSERT INTO waystone.memberships (tenant_id, actor_type, actor_id, role) VALUES ($1, 'node', $2, 'node')`, tenantA, remoteA)
+	if _, err := get(other, op.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("another node: %v", err)
+	}
+	// The server moved away under the running install.
+	mustExec(t, e.owner, `UPDATE waystone.servers SET node_id = $1 WHERE server_id = $2`, remoteA, s.ID)
+	if _, err := get(nodeActA, op.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("moved server: %v", err)
+	}
+	if _, err := get(other, op.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("moved server, asked by its new node: %v", err)
+	}
+	mustExec(t, e.owner, `UPDATE waystone.servers SET node_id = $1 WHERE server_id = $2`, nodeA, s.ID)
+
+	// A running stop of the same server isn't an install.
+	if err := e.complete(nodeActA, epoch, op.ID, succeeded); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := get(nodeActA, op.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("finished: %v", err)
+	}
+	start, _, err := e.create(adminA, CreateOperationInput{ServerID: s.ID, Action: ActionStop})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.claim(nodeActA, epoch); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := get(nodeActA, start.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a stop: %v", err)
+	}
+}

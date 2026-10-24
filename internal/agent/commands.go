@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -39,21 +41,57 @@ const (
 )
 
 // commands is one session's view of the commands it was sent: what is
-// still running, and the inventory from the hello (F14).
+// still running, and the inventory from the hello (F14) and every
+// ServerAdded since (6c-2).
 type commands struct {
-	epoch     int64
-	inventory map[string]bool
+	epoch int64
+	// link is this session's connection, for an install's own calls.
+	link agentv1.AgentLinkServiceClient
 
-	mu       sync.Mutex
-	inflight map[string]string // operation ID -> server ID
+	mu        sync.Mutex
+	inventory []string          // in the hello's order, then as added
+	ports     map[string]uint32 // the game port of each server that has one
+	inflight  map[string]string // operation ID -> server ID
 }
 
-func newCommands(epoch int64, serverIDs []string) *commands {
-	c := &commands{epoch: epoch, inventory: make(map[string]bool, len(serverIDs)), inflight: make(map[string]string)}
-	for _, id := range serverIDs {
-		c.inventory[id] = true
+func newCommands(epoch int64, serverIDs []string, ports map[string]uint32) *commands {
+	c := &commands{epoch: epoch, inventory: slices.Clone(serverIDs), ports: maps.Clone(ports), inflight: make(map[string]string)}
+	if c.ports == nil {
+		c.ports = map[string]uint32{}
 	}
 	return c
+}
+
+// add puts a ServerAdded's server in the inventory. Any error is a
+// protocol error: the wrong epoch, a bad ID or port, a server it already
+// has, or one more than the most a hello may list.
+func (c *commands) add(m *agentv1.ServerAdded) error {
+	if m.GetEpoch() != c.epoch {
+		return protocolError("server added for another epoch")
+	}
+	if ids.Check(m.GetServerId()) != nil || m.GetGamePort() > 65535 {
+		return protocolError("server added with a bad ID or port")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if slices.Contains(c.inventory, m.GetServerId()) {
+		return protocolError("server added twice")
+	}
+	if len(c.inventory) >= maxServers {
+		return protocolError("more servers than a hello may list")
+	}
+	c.inventory = append(c.inventory, m.GetServerId())
+	if m.GetGamePort() != 0 {
+		c.ports[m.GetServerId()] = m.GetGamePort()
+	}
+	return nil
+}
+
+// servers returns a copy of the inventory and its ports, for one report.
+func (c *commands) servers() ([]string, map[string]uint32) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.inventory), maps.Clone(c.ports)
 }
 
 // errProtocol: the controller sent something no correct controller
@@ -74,7 +112,8 @@ func (c *commands) accept(cmd *agentv1.Command) (known bool, err error) {
 	}
 	switch cmd.GetAction() {
 	case agentv1.CommandAction_COMMAND_ACTION_START, agentv1.CommandAction_COMMAND_ACTION_STOP,
-		agentv1.CommandAction_COMMAND_ACTION_RESTART:
+		agentv1.CommandAction_COMMAND_ACTION_RESTART, agentv1.CommandAction_COMMAND_ACTION_INSTALL,
+		agentv1.CommandAction_COMMAND_ACTION_ACCEPT_EULA:
 	default:
 		return false, protocolError("command with an unknown action")
 	}
@@ -91,7 +130,7 @@ func (c *commands) accept(cmd *agentv1.Command) (known bool, err error) {
 	if len(c.inflight) >= maxInFlight {
 		return false, protocolError("more than 4 commands in flight")
 	}
-	if !c.inventory[cmd.GetServerId()] {
+	if !slices.Contains(c.inventory, cmd.GetServerId()) {
 		return false, nil
 	}
 	c.inflight[cmd.GetOperationId()] = cmd.GetServerId()
@@ -159,7 +198,7 @@ func (a *Agent) execute(cmd *agentv1.Command, cmds *commands, send func(*agentv1
 		return f(ctx, cmd.GetServerId(), cmd.GetOperationId())
 	}
 	finish := func(err error) {
-		outcome, code := outcomeOf(err)
+		outcome, code := installOutcome(err)
 		cmds.done(cmd.GetOperationId())
 		if !send(result(cmd.GetEpoch(), cmd.GetOperationId(), outcome, code)) {
 			a.logf("agent=result_dropped op=%s server=%s outcome=%s code=%s reason=session_ended",
@@ -188,5 +227,9 @@ func (a *Agent) execute(cmd *agentv1.Command, cmds *commands, send func(*agentv1
 			Epoch: cmd.GetEpoch(), OperationId: cmd.GetOperationId(), Phase: agentv1.OperationPhase_OPERATION_PHASE_STARTING,
 		}}})
 		finish(call(a.runner.Start))
+	case agentv1.CommandAction_COMMAND_ACTION_INSTALL:
+		finish(a.install(cmd, cmds, send))
+	case agentv1.CommandAction_COMMAND_ACTION_ACCEPT_EULA:
+		finish(a.acceptEula(cmd))
 	}
 }

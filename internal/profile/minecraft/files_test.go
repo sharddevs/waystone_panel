@@ -120,7 +120,7 @@ func TestWritePropertiesKeepsAdministratorEdits(t *testing.T) {
 		t.Fatalf("WriteProperties: %v", err)
 	}
 	want := "#Minecraft server properties\nwhite-list=true\nmotd=Waystone test\ndifficulty=hard\n" +
-		"server-port=25566\nmax-players=20\nonline-mode=true\n"
+		"server-port=25566\nmax-players=20\nonline-mode=true\n" + locked
 	if got := f.files[PropertiesFile]; got != want {
 		t.Errorf("server.properties =\n%q\nwant\n%q", got, want)
 	}

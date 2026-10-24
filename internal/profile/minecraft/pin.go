@@ -18,3 +18,45 @@ const (
 	// DefaultMaxPlayers is max-players for v0.1, which has no setting for it.
 	DefaultMaxPlayers = 20
 )
+
+// Artifact is one pinned server jar. The controller, the agent and
+// waystone-fetch each check a jar against the set they were built with,
+// never against anything they were sent.
+type Artifact struct {
+	Version string
+	URL     string
+	SHA1    string // lowercase hex
+	SHA256  string // lowercase hex
+	Size    int64
+	Runtime string
+}
+
+// Pinned is the set this build trusts: the one curated version.
+var Pinned = []Artifact{{
+	Version: PinnedVersion,
+	URL:     PinnedURL,
+	SHA1:    PinnedSHA1,
+	SHA256:  PinnedSHA256,
+	Size:    PinnedSize,
+	Runtime: PinnedRuntime,
+}}
+
+// ForVersion finds version's artifact in set.
+func ForVersion(set []Artifact, version string) (Artifact, bool) {
+	for _, a := range set {
+		if a.Version == version {
+			return a, true
+		}
+	}
+	return Artifact{}, false
+}
+
+// ForSHA256 finds the artifact with this SHA-256 (lowercase hex) in set.
+func ForSHA256(set []Artifact, sum string) (Artifact, bool) {
+	for _, a := range set {
+		if a.SHA256 == sum {
+			return a, true
+		}
+	}
+	return Artifact{}, false
+}

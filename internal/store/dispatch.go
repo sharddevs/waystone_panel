@@ -38,6 +38,9 @@ type ClaimedOperation struct {
 	ServerID    string
 	Action      Action
 	Epoch       int64
+	// GamePort is the server's config port, 0 when it has none (6c-2:
+	// the agent learns a new server's port with its first command).
+	GamePort uint32
 }
 
 // lockSession locks the node row FOR SHARE and checks that epoch is the
@@ -103,9 +106,10 @@ func (t *Tx) ClaimNext(ctx context.Context, epoch int64) (op ClaimedOperation, o
 		// RLS hides servers outside the node's tenant, so a server that
 		// moved to another tenant looks deleted, which is what it is to us.
 		var liveNode string
+		var port *string
 		err = t.tx.QueryRow(ctx, `
-			SELECT node_id::text FROM waystone.servers
-			WHERE server_id = $1`, serverID).Scan(&liveNode)
+			SELECT node_id::text, config->>'port' FROM waystone.servers
+			WHERE server_id = $1`, serverID).Scan(&liveNode, &port)
 		refusal := ""
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -152,7 +156,8 @@ func (t *Tx) ClaimNext(ctx context.Context, epoch int64) (op ClaimedOperation, o
 			// The row is locked, so this can't happen; say so if it does.
 			return ClaimedOperation{}, false, fmt.Errorf("claim operation %s: no row changed", opID)
 		}
-		return ClaimedOperation{OperationID: opID, ServerID: serverID, Action: action, Epoch: epoch}, true, nil
+		gamePort, _ := GamePort(port)
+		return ClaimedOperation{OperationID: opID, ServerID: serverID, Action: action, Epoch: epoch, GamePort: gamePort}, true, nil
 	}
 }
 

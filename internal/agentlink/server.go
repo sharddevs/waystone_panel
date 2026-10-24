@@ -35,6 +35,7 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/agenttls"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/peercred"
+	"github.com/sharddevs/waystone_panel/internal/profile/minecraft"
 	"github.com/sharddevs/waystone_panel/internal/store"
 )
 
@@ -92,6 +93,11 @@ type Config struct {
 	// Version is the controller's version. An agent must say hello with
 	// exactly this one (D4).
 	Version string
+	// ArtifactDir is the cache FetchArtifact serves from (6c-2);
+	// DefaultArtifactDir when empty. Artifacts is the pinned set;
+	// minecraft.Pinned when nil (tests pin a small one).
+	ArtifactDir string
+	Artifacts   []minecraft.Artifact
 
 	// For tests; zero values mean the real thing.
 	Nodes            NodeLookup                     // Store
@@ -127,6 +133,9 @@ type Server struct {
 	// localNode is the configured agent.sock node, or "".
 	localNode string
 	version   string
+	// artifactDir and artifacts: FetchArtifact's cache and pins (6c-2).
+	artifactDir string
+	artifacts   []minecraft.Artifact
 	// nodeID and actor are the node of one stream. They are set only on
 	// the copy forNode makes for that stream, never on the shared Server.
 	nodeID         string
@@ -176,6 +185,8 @@ func New(cfg Config) (*Server, error) {
 		nodes:          cfg.Nodes,
 		localNode:      cfg.NodeID,
 		version:        cfg.Version,
+		artifactDir:    cfg.ArtifactDir,
+		artifacts:      cfg.Artifacts,
 		log:            cfg.Log,
 		now:            cfg.Now,
 		helloTimeout:   cfg.HelloTimeout,
@@ -200,6 +211,12 @@ func New(cfg Config) (*Server, error) {
 	}
 	if s.now == nil {
 		s.now = time.Now
+	}
+	if s.artifactDir == "" {
+		s.artifactDir = DefaultArtifactDir
+	}
+	if s.artifacts == nil {
+		s.artifacts = minecraft.Pinned
 	}
 	if s.helloTimeout == 0 {
 		s.helloTimeout = HelloTimeout
@@ -469,7 +486,7 @@ func (s *Server) connect(stream agentv1.AgentLinkService_ConnectServer) error {
 
 	// From here on only the dispatcher sends (S2). The handler waits for
 	// it before returning, so nothing is sent on a finished stream.
-	d := newDispatcher(s, epoch, stream)
+	d := newDispatcher(s, epoch, stream, serverIDs)
 	s.sessions.setKick(s.nodeID, epoch, d.signal)
 	d.signal() // claim right after the hello (Q7)
 	dispCtx, stopDispatch := context.WithCancel(sessCtx)

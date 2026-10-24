@@ -31,7 +31,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentLinkService_Connect_FullMethodName = "/waystone.agent.v1.AgentLinkService/Connect"
+	AgentLinkService_Connect_FullMethodName        = "/waystone.agent.v1.AgentLinkService/Connect"
+	AgentLinkService_GetInstallSpec_FullMethodName = "/waystone.agent.v1.AgentLinkService/GetInstallSpec"
+	AgentLinkService_FetchArtifact_FullMethodName  = "/waystone.agent.v1.AgentLinkService/FetchArtifact"
 )
 
 // AgentLinkServiceClient is the client API for AgentLinkService service.
@@ -42,6 +44,15 @@ type AgentLinkServiceClient interface {
 	// Reports, and Progress and Results for the commands the controller
 	// sent on this stream.
 	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConnectRequest, ConnectResponse], error)
+	// An install's settings (6c-2). Only for a server.install operation
+	// that is running on the calling node; anything else is not_permitted,
+	// the same answer for every case.
+	GetInstallSpec(ctx context.Context, in *GetInstallSpecRequest, opts ...grpc.CallOption) (*GetInstallSpecResponse, error)
+	// A pinned artifact, in chunks of at most 32 KiB (6c-2). Only during a
+	// running install on the calling node, and only a hash in the pinned
+	// set. The controller hashes what it sends and ends the stream with
+	// artifact_mismatch if its copy is wrong.
+	FetchArtifact(ctx context.Context, in *FetchArtifactRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FetchArtifactResponse], error)
 }
 
 type agentLinkServiceClient struct {
@@ -65,6 +76,35 @@ func (c *agentLinkServiceClient) Connect(ctx context.Context, opts ...grpc.CallO
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentLinkService_ConnectClient = grpc.BidiStreamingClient[ConnectRequest, ConnectResponse]
 
+func (c *agentLinkServiceClient) GetInstallSpec(ctx context.Context, in *GetInstallSpecRequest, opts ...grpc.CallOption) (*GetInstallSpecResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetInstallSpecResponse)
+	err := c.cc.Invoke(ctx, AgentLinkService_GetInstallSpec_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentLinkServiceClient) FetchArtifact(ctx context.Context, in *FetchArtifactRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FetchArtifactResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentLinkService_ServiceDesc.Streams[1], AgentLinkService_FetchArtifact_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[FetchArtifactRequest, FetchArtifactResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentLinkService_FetchArtifactClient = grpc.ServerStreamingClient[FetchArtifactResponse]
+
 // AgentLinkServiceServer is the server API for AgentLinkService service.
 // All implementations must embed UnimplementedAgentLinkServiceServer
 // for forward compatibility.
@@ -73,6 +113,15 @@ type AgentLinkServiceServer interface {
 	// Reports, and Progress and Results for the commands the controller
 	// sent on this stream.
 	Connect(grpc.BidiStreamingServer[ConnectRequest, ConnectResponse]) error
+	// An install's settings (6c-2). Only for a server.install operation
+	// that is running on the calling node; anything else is not_permitted,
+	// the same answer for every case.
+	GetInstallSpec(context.Context, *GetInstallSpecRequest) (*GetInstallSpecResponse, error)
+	// A pinned artifact, in chunks of at most 32 KiB (6c-2). Only during a
+	// running install on the calling node, and only a hash in the pinned
+	// set. The controller hashes what it sends and ends the stream with
+	// artifact_mismatch if its copy is wrong.
+	FetchArtifact(*FetchArtifactRequest, grpc.ServerStreamingServer[FetchArtifactResponse]) error
 	mustEmbedUnimplementedAgentLinkServiceServer()
 }
 
@@ -85,6 +134,12 @@ type UnimplementedAgentLinkServiceServer struct{}
 
 func (UnimplementedAgentLinkServiceServer) Connect(grpc.BidiStreamingServer[ConnectRequest, ConnectResponse]) error {
 	return status.Error(codes.Unimplemented, "method Connect not implemented")
+}
+func (UnimplementedAgentLinkServiceServer) GetInstallSpec(context.Context, *GetInstallSpecRequest) (*GetInstallSpecResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetInstallSpec not implemented")
+}
+func (UnimplementedAgentLinkServiceServer) FetchArtifact(*FetchArtifactRequest, grpc.ServerStreamingServer[FetchArtifactResponse]) error {
+	return status.Error(codes.Unimplemented, "method FetchArtifact not implemented")
 }
 func (UnimplementedAgentLinkServiceServer) mustEmbedUnimplementedAgentLinkServiceServer() {}
 func (UnimplementedAgentLinkServiceServer) testEmbeddedByValue()                          {}
@@ -114,19 +169,58 @@ func _AgentLinkService_Connect_Handler(srv interface{}, stream grpc.ServerStream
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentLinkService_ConnectServer = grpc.BidiStreamingServer[ConnectRequest, ConnectResponse]
 
+func _AgentLinkService_GetInstallSpec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInstallSpecRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentLinkServiceServer).GetInstallSpec(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentLinkService_GetInstallSpec_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentLinkServiceServer).GetInstallSpec(ctx, req.(*GetInstallSpecRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentLinkService_FetchArtifact_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(FetchArtifactRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AgentLinkServiceServer).FetchArtifact(m, &grpc.GenericServerStream[FetchArtifactRequest, FetchArtifactResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentLinkService_FetchArtifactServer = grpc.ServerStreamingServer[FetchArtifactResponse]
+
 // AgentLinkService_ServiceDesc is the grpc.ServiceDesc for AgentLinkService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var AgentLinkService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "waystone.agent.v1.AgentLinkService",
 	HandlerType: (*AgentLinkServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetInstallSpec",
+			Handler:    _AgentLinkService_GetInstallSpec_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Connect",
 			Handler:       _AgentLinkService_Connect_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "FetchArtifact",
+			Handler:       _AgentLinkService_FetchArtifact_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "waystone/agent/v1/agent.proto",

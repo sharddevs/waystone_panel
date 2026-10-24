@@ -25,6 +25,9 @@ type sentOp struct {
 	serverID string
 	action   store.Action
 	starting bool // a restart that has reported Progress(STARTING)
+	// phase is an install's last phase: claimed in provisioning, then
+	// fetching, then configuring (6c-2).
+	phase string
 }
 
 // dispatcher belongs to one session.
@@ -42,16 +45,25 @@ type dispatcher struct {
 	// result removes. Its size is the number of slots in use.
 	mu       sync.Mutex
 	inflight map[string]*sentOp
+
+	// known is the agent's inventory: the hello's servers, and every
+	// ServerAdded since (6c-2). Only the dispatcher uses it.
+	known map[string]bool
 }
 
-func newDispatcher(s *Server, epoch int64, stream agentv1.AgentLinkService_ConnectServer) *dispatcher {
-	return &dispatcher{
+func newDispatcher(s *Server, epoch int64, stream agentv1.AgentLinkService_ConnectServer, serverIDs []string) *dispatcher {
+	d := &dispatcher{
 		s:        s,
 		epoch:    epoch,
 		stream:   stream,
 		wake:     make(chan struct{}, 1),
 		inflight: make(map[string]*sentOp),
+		known:    make(map[string]bool, len(serverIDs)),
 	}
+	for _, id := range serverIDs {
+		d.known[id] = true
+	}
+	return d
 }
 
 // signal wakes the dispatcher. It never blocks.
@@ -123,13 +135,29 @@ func (d *dispatcher) drain(ctx context.Context) error {
 		// In the set before Send: a result can arrive the moment the
 		// command is out.
 		d.mu.Lock()
-		d.inflight[op.OperationID] = &sentOp{serverID: op.ServerID, action: op.Action}
+		sent := &sentOp{serverID: op.ServerID, action: op.Action}
+		if op.Action == store.ActionInstall {
+			sent.phase = "provisioning"
+		}
+		d.inflight[op.OperationID] = sent
 		d.mu.Unlock()
 
 		if d.s.testAfterClaim != nil {
 			if err := d.s.testAfterClaim(op); err != nil {
 				return errSendFailed
 			}
+		}
+		// A server made after the hello (6c-2): the agent learns of it
+		// first, on the same stream, so the command finds it.
+		if !d.known[op.ServerID] {
+			err = d.stream.Send(&agentv1.ConnectResponse{Msg: &agentv1.ConnectResponse_ServerAdded{ServerAdded: &agentv1.ServerAdded{
+				Epoch: d.epoch, ServerId: op.ServerID, GamePort: op.GamePort,
+			}}})
+			if err != nil {
+				d.s.logf("agent_dispatch=send_failed node=%s epoch=%d op=%s", d.s.nodeID, d.epoch, op.OperationID)
+				return errSendFailed
+			}
+			d.known[op.ServerID] = true
 		}
 		err = d.stream.Send(&agentv1.ConnectResponse{Msg: &agentv1.ConnectResponse_Command{Command: &agentv1.Command{
 			Epoch:       d.epoch,
@@ -185,8 +213,19 @@ func (d *dispatcher) result(ctx context.Context, r *agentv1.Result) error {
 	return nil
 }
 
-// progress handles a Progress: only once, only for a restart this session
-// sent.
+// installPhases is the one step an install may take from each phase.
+var installPhases = map[string]agentv1.OperationPhase{
+	"provisioning": agentv1.OperationPhase_OPERATION_PHASE_FETCHING,
+	"fetching":     agentv1.OperationPhase_OPERATION_PHASE_CONFIGURING,
+}
+
+var phaseNames = map[agentv1.OperationPhase]string{
+	agentv1.OperationPhase_OPERATION_PHASE_FETCHING:    "fetching",
+	agentv1.OperationPhase_OPERATION_PHASE_CONFIGURING: "configuring",
+}
+
+// progress handles a Progress: STARTING once for a restart this session
+// sent, or an install's next phase.
 func (d *dispatcher) progress(ctx context.Context, p *agentv1.Progress) error {
 	s := d.s
 	if p.GetEpoch() != d.epoch {
@@ -195,6 +234,9 @@ func (d *dispatcher) progress(ctx context.Context, p *agentv1.Progress) error {
 	op, ok := d.sent(p.GetOperationId())
 	if !ok {
 		return s.refuse(codes.InvalidArgument, "unknown_operation")
+	}
+	if op.action == store.ActionInstall {
+		return d.installProgress(ctx, op, p)
 	}
 	if p.GetPhase() != agentv1.OperationPhase_OPERATION_PHASE_STARTING || op.action != store.ActionRestart || op.starting {
 		return s.refuse(codes.InvalidArgument, "invalid_progress")
@@ -207,6 +249,28 @@ func (d *dispatcher) progress(ctx context.Context, p *agentv1.Progress) error {
 	}
 	d.mu.Lock()
 	op.starting = true
+	d.mu.Unlock()
+	return nil
+}
+
+// installProgress moves an install one phase on, never back or past one.
+func (d *dispatcher) installProgress(ctx context.Context, op *sentOp, p *agentv1.Progress) error {
+	s := d.s
+	d.mu.Lock()
+	from := op.phase
+	d.mu.Unlock()
+	if next, ok := installPhases[from]; !ok || p.GetPhase() != next {
+		return s.refuse(codes.InvalidArgument, "invalid_progress")
+	}
+	to := phaseNames[p.GetPhase()]
+	err := s.store.InTenantTx(ctx, s.actor, func(ctx context.Context, tx *store.Tx) error {
+		return tx.InstallPhase(ctx, d.epoch, p.GetOperationId(), to)
+	})
+	if err := d.storeError(ctx, "progress", p.GetOperationId(), err); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	op.phase = to
 	d.mu.Unlock()
 	return nil
 }

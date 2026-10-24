@@ -165,7 +165,7 @@ func TestOutcomeThroughRealHelperClient(t *testing.T) {
 
 // §5 steps 1 to 3: what a session accepts.
 func TestCommandsAccept(t *testing.T) {
-	c := newCommands(3, []string{srv1, srv2, srv3, srv4, srv5})
+	c := newCommands(3, []string{srv1, srv2, srv3, srv4, srv5}, nil)
 	bad := map[string]*agentv1.Command{
 		"other epoch":    command(2, op1, srv1, start),
 		"bad op ID":      command(3, "nope", srv1, start),
@@ -272,7 +272,7 @@ func TestExecute(t *testing.T) {
 		r := &fakeRunner{fail: c.fail}
 		a := testAgent(t, &fakeHelper{}, time.Second, time.Second)
 		a.runner = r
-		cmds := newCommands(3, []string{srv1})
+		cmds := newCommands(3, []string{srv1}, nil)
 		cmd := command(3, op1, srv1, c.action)
 		if known, err := cmds.accept(cmd); !known || err != nil {
 			t.Fatal(known, err)
@@ -320,7 +320,7 @@ func TestExecuteAfterSessionEnded(t *testing.T) {
 	r := &fakeRunner{}
 	a := testAgent(t, &fakeHelper{}, time.Second, time.Second)
 	a.runner = r
-	cmds := newCommands(3, []string{srv1})
+	cmds := newCommands(3, []string{srv1}, nil)
 	cmd := command(3, op1, srv1, restart)
 	cmds.accept(cmd)
 	s := &sentMsgs{ok: false}

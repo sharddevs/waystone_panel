@@ -10,8 +10,12 @@ import (
 
 var testProps = Properties{ServerPort: 25566, Motd: "Waystone test", MaxPlayers: 20}
 
-// The four managed lines for testProps, in append order.
-const managed = "server-port=25566\nmotd=Waystone test\nmax-players=20\nonline-mode=true\n"
+// The managed lines for testProps, in append order: the four settings,
+// then the fixed ones (6H5).
+const (
+	locked  = "server-ip=\nenable-rcon=false\nenable-query=false\nmanagement-server-enabled=false\nenable-jmx-monitoring=false\n"
+	managed = "server-port=25566\nmotd=Waystone test\nmax-players=20\nonline-mode=true\n" + locked
+)
 
 func TestValidateAccepts(t *testing.T) {
 	for _, p := range []Properties{
@@ -58,12 +62,12 @@ func TestMergeProperties(t *testing.T) {
 		{
 			"typical Minecraft file: replaced in place, others kept",
 			"#Minecraft server properties\n#Sat Oct 10 23:59:11 UTC 2026\ndifficulty=easy\nmax-players=10\nmotd=A Minecraft Server\nonline-mode=false\nserver-port=25565\nwhite-list=true\n",
-			"#Minecraft server properties\n#Sat Oct 10 23:59:11 UTC 2026\ndifficulty=easy\nmax-players=20\nmotd=Waystone test\nonline-mode=true\nserver-port=25566\nwhite-list=true\n",
+			"#Minecraft server properties\n#Sat Oct 10 23:59:11 UTC 2026\ndifficulty=easy\nmax-players=20\nmotd=Waystone test\nonline-mode=true\nserver-port=25566\nwhite-list=true\n" + locked,
 		},
 		{
 			"duplicates: first replaced, later ones removed, missing appended",
 			"server-port=25565\nserver-port=25566\nonline-mode=false\n",
-			"server-port=25566\nonline-mode=true\nmotd=Waystone test\nmax-players=20\n",
+			"server-port=25566\nonline-mode=true\nmotd=Waystone test\nmax-players=20\n" + locked,
 		},
 		{
 			"other separators and leading whitespace",
@@ -83,12 +87,12 @@ func TestMergeProperties(t *testing.T) {
 		{
 			"an even number of backslashes does not continue",
 			"path=C:\\\\\nserver-port=1\n",
-			"path=C:\\\\\nserver-port=25566\nmotd=Waystone test\nmax-players=20\nonline-mode=true\n",
+			"path=C:\\\\\nserver-port=25566\nmotd=Waystone test\nmax-players=20\nonline-mode=true\n" + locked,
 		},
 		{
 			"comment lines never continue",
 			"#note \\\nserver-port=1\n",
-			"#note \\\nserver-port=25566\nmotd=Waystone test\nmax-players=20\nonline-mode=true\n",
+			"#note \\\nserver-port=25566\nmotd=Waystone test\nmax-players=20\nonline-mode=true\n" + locked,
 		},
 		{
 			"unrelated malformed lines are kept",
@@ -103,7 +107,13 @@ func TestMergeProperties(t *testing.T) {
 		{
 			"CRLF lines: managed line rewritten, others untouched",
 			"server-port=1\r\nlevel-name=world\r\n",
-			"server-port=25566\nlevel-name=world\r\nmotd=Waystone test\nmax-players=20\nonline-mode=true\n",
+			"server-port=25566\nlevel-name=world\r\nmotd=Waystone test\nmax-players=20\nonline-mode=true\n" + locked,
+		},
+		{
+			"the fixed keys are rewritten in place (6H5)",
+			"enable-rcon=true\nrcon.password=hunter2\nserver-ip=10.0.0.1\nenable-query=true\nmanagement-server-enabled=true\nenable-jmx-monitoring=true\n",
+			"enable-rcon=false\nrcon.password=hunter2\nserver-ip=\nenable-query=false\nmanagement-server-enabled=false\nenable-jmx-monitoring=false\n" +
+				"server-port=25566\nmotd=Waystone test\nmax-players=20\nonline-mode=true\n",
 		},
 		{
 			"no final newline",
@@ -179,7 +189,7 @@ func TestMergePropertiesEmptyKeyContinuation(t *testing.T) {
 		"server-port=25565\n" +
 		"motd=Waystone test\n" +
 		"max-players=20\n" +
-		"online-mode=true\n"
+		"online-mode=true\n" + locked
 
 	if string(got) != want {
 		t.Errorf("MergeProperties:\ngot:\n%s\nwant:\n%s", got, want)

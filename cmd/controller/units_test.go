@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sharddevs/waystone_panel/internal/agentlink"
 )
 
 // readUnit returns a unit file's Key=Value lines, keyed by "Section.Key".
@@ -171,11 +173,14 @@ func TestAgentTCPUnits(t *testing.T) {
 	for k, v := range map[string]string{
 		"Service.PrivateNetwork":          "yes",
 		"Service.RestrictAddressFamilies": "AF_UNIX",
-		"Service.StateDirectory":          "waystone-controller",
+		"Service.StateDirectory":          "waystone-controller waystone-controller/artifacts",
 		"Service.StateDirectoryMode":      "0700",
 	} {
 		if u[k] != v {
 			t.Errorf("controller: %s = %q, want %q", k, u[k], v)
 		}
+	}
+	if agentlink.DefaultArtifactDir != "/var/lib/waystone-controller/artifacts" {
+		t.Errorf("the artifact cache %s isn't the unit's StateDirectory", agentlink.DefaultArtifactDir)
 	}
 }

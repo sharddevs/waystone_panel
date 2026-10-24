@@ -77,20 +77,37 @@ func (p Properties) Validate() error {
 }
 
 // The keys Waystone manages, in the order MergeProperties appends missing
-// ones. online-mode is always written as "true".
+// ones. online-mode is always written as "true". The rest are fixed too
+// (6H5): the game listens on every address, and its remote consoles and
+// management ports stay off, since nothing in Waystone guards them.
 const (
-	KeyServerPort = "server-port"
-	KeyMotd       = "motd"
-	KeyMaxPlayers = "max-players"
-	KeyOnlineMode = "online-mode"
+	KeyServerPort       = "server-port"
+	KeyMotd             = "motd"
+	KeyMaxPlayers       = "max-players"
+	KeyOnlineMode       = "online-mode"
+	KeyServerIP         = "server-ip"
+	KeyEnableRcon       = "enable-rcon"
+	KeyEnableQuery      = "enable-query"
+	KeyManagementServer = "management-server-enabled"
+	KeyJMXMonitoring    = "enable-jmx-monitoring"
 )
+
+var managedOrder = []string{
+	KeyServerPort, KeyMotd, KeyMaxPlayers, KeyOnlineMode,
+	KeyServerIP, KeyEnableRcon, KeyEnableQuery, KeyManagementServer, KeyJMXMonitoring,
+}
 
 func managedValues(p Properties) map[string]string {
 	return map[string]string{
-		KeyServerPort: strconv.FormatUint(uint64(p.ServerPort), 10),
-		KeyMotd:       p.Motd,
-		KeyMaxPlayers: strconv.FormatUint(uint64(p.MaxPlayers), 10),
-		KeyOnlineMode: "true",
+		KeyServerPort:       strconv.FormatUint(uint64(p.ServerPort), 10),
+		KeyMotd:             p.Motd,
+		KeyMaxPlayers:       strconv.FormatUint(uint64(p.MaxPlayers), 10),
+		KeyOnlineMode:       "true",
+		KeyServerIP:         "",
+		KeyEnableRcon:       "false",
+		KeyEnableQuery:      "false",
+		KeyManagementServer: "false",
+		KeyJMXMonitoring:    "false",
 	}
 }
 
@@ -140,13 +157,6 @@ func propertyKey(line string) string {
 // managed key whose line continues onto the next.
 func MergeProperties(existing []byte, p Properties) ([]byte, error) {
 	values := managedValues(p)
-
-	order := []string{
-		KeyServerPort,
-		KeyMotd,
-		KeyMaxPlayers,
-		KeyOnlineMode,
-	}
 
 	seen := make(map[string]bool)
 	var output []string
@@ -207,7 +217,7 @@ func MergeProperties(existing []byte, p Properties) ([]byte, error) {
 		}
 	}
 
-	for _, key := range order {
+	for _, key := range managedOrder {
 		if !seen[key] {
 			output = append(output, key+"="+values[key])
 		}

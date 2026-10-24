@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharddevs/waystone_panel/internal/agent"
 	"github.com/sharddevs/waystone_panel/internal/helper"
 )
 
@@ -86,6 +87,15 @@ func TestAgentServiceUnit(t *testing.T) {
 	}
 	if cfg.controllerUID != 996 || cfg.node != testNode {
 		t.Errorf("parsed %+v", cfg)
+	}
+	provSocket := readUnit(t, "waystone-provisioner.socket")["Socket.ListenStream"]
+	if cfg.provisioner != provSocket || helper.DefaultProvisionerSocketPath != provSocket {
+		t.Errorf("provisioner socket %q (default %q), its unit listens on %q", cfg.provisioner, helper.DefaultProvisionerSocketPath, provSocket)
+	}
+	// The staging directory is the agent's default, and the unit makes it.
+	if u["Service.StateDirectory"] != "waystone-agent waystone-agent/staging" || u["Service.StateDirectoryMode"] != "0700" ||
+		agent.DefaultStagingDir != "/var/lib/waystone-agent/staging" {
+		t.Errorf("StateDirectory %q mode %q, staging %q", u["Service.StateDirectory"], u["Service.StateDirectoryMode"], agent.DefaultStagingDir)
 	}
 	helperSocket := readUnit(t, "waystone-helper.socket")["Socket.ListenStream"]
 	if cfg.helper != helperSocket || helper.DefaultSocketPath != helperSocket {

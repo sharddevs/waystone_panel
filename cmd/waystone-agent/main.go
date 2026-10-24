@@ -56,6 +56,9 @@ type config struct {
 	tlsDir         string
 	node           string
 	helper         string
+	// provisioner is the provisioning service's socket (6c-2): installs
+	// and the EULA.
+	provisioner string
 }
 
 func (c config) remote() bool { return c.controllerAddr.IsValid() }
@@ -74,6 +77,7 @@ func parse(args []string, uid int, stderr io.Writer) (config, error) {
 	tlsDir := flags.String("tls-dir", defaultTLSDir, "This node's key directory (remote nodes)")
 	node := flags.String("node", "", "This node's ID (UUID)")
 	helperSocket := flags.String("helper", helper.DefaultSocketPath, "The helper's socket")
+	provisionerSocket := flags.String("provisioner", helper.DefaultProvisionerSocketPath, "The provisioning service's socket")
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -86,6 +90,8 @@ func parse(args []string, uid int, stderr io.Writer) (config, error) {
 		return config{}, fmt.Errorf("refusing to run as root")
 	case *helperSocket == "":
 		return config{}, fmt.Errorf("-helper is required")
+	case *provisionerSocket == "":
+		return config{}, fmt.Errorf("-provisioner is required")
 	case local == remote:
 		return config{}, fmt.Errorf("give either -controller and -controller-uid, or -controller-addr and -controller-pin")
 	case local && *controller == "":
@@ -96,7 +102,7 @@ func parse(args []string, uid int, stderr io.Writer) (config, error) {
 	if err := ids.Check(*node); err != nil {
 		return config{}, fmt.Errorf("-node: %w", err)
 	}
-	cfg := config{node: *node, helper: *helperSocket}
+	cfg := config{node: *node, helper: *helperSocket, provisioner: *provisionerSocket}
 	if local {
 		cfg.controller, cfg.controllerUID = *controller, uint32(*controllerUID)
 		return cfg, nil
@@ -131,7 +137,11 @@ func run(args []string, uid int, stderr io.Writer) int {
 		Version:          version,
 		Helper:           helper.Client{SocketPath: cfg.helper},
 		Runner:           lifecycle.HelperRuntime{Client: helper.Client{SocketPath: cfg.helper}},
-		Prober:           minecraft.StatusPing{},
+		Provisioner: lifecycle.HelperRuntime{
+			Client:      helper.Client{SocketPath: cfg.helper},
+			Provisioner: helper.Client{SocketPath: cfg.provisioner},
+		},
+		Prober: minecraft.StatusPing{},
 	}
 	var where string
 	if cfg.remote() {

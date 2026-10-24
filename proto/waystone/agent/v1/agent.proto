@@ -22,6 +22,46 @@ service AgentLinkService {
   // Reports, and Progress and Results for the commands the controller
   // sent on this stream.
   rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
+
+  // An install's settings (6c-2). Only for a server.install operation
+  // that is running on the calling node; anything else is not_permitted,
+  // the same answer for every case.
+  rpc GetInstallSpec(GetInstallSpecRequest) returns (GetInstallSpecResponse);
+
+  // A pinned artifact, in chunks of at most 32 KiB (6c-2). Only during a
+  // running install on the calling node, and only a hash in the pinned
+  // set. The controller hashes what it sends and ends the stream with
+  // artifact_mismatch if its copy is wrong.
+  rpc FetchArtifact(FetchArtifactRequest) returns (stream FetchArtifactResponse);
+}
+
+message GetInstallSpecRequest {
+  string server_id = 1;
+  string operation_id = 2;
+}
+
+// What an install sets up. The agent checks every field again against
+// its own pinned set and limits.
+message GetInstallSpecResponse {
+  string version = 1;
+  // The artifact's SHA-256, 32 bytes, and its size in bytes.
+  bytes artifact_sha256 = 2;
+  uint64 artifact_size = 3;
+  uint32 port = 4;
+  uint32 heap_mib = 5;
+  string motd = 6;
+  uint32 max_players = 7;
+}
+
+message FetchArtifactRequest {
+  // The running install this fetch belongs to.
+  string operation_id = 1;
+  // 32 bytes.
+  bytes sha256 = 2;
+}
+
+message FetchArtifactResponse {
+  bytes data = 1;
 }
 
 // Enrollment (stage 6a): a new node redeems a one-time token. Only the
@@ -58,7 +98,18 @@ message ConnectResponse {
   oneof msg {
     HelloReply hello_reply = 1;
     Command command = 2;
+    ServerAdded server_added = 3;
   }
+}
+
+// A server created after the hello (6c-2). The controller sends it before
+// the server's first command, so the agent's inventory and game ports
+// grow without a new hello.
+message ServerAdded {
+  int64 epoch = 1;
+  string server_id = 2;
+  // 0 when the server has no port configured.
+  uint32 game_port = 3;
 }
 
 message Hello {
@@ -145,10 +196,17 @@ enum CommandAction {
   COMMAND_ACTION_STOP = 2;
   // STOP, then START, reported in two phases.
   COMMAND_ACTION_RESTART = 3;
+  // Provision, fetch the pinned jar and write server.properties (6c-2),
+  // reported in the phases FETCHING and CONFIGURING. The settings come
+  // from GetInstallSpec, never from the command.
+  COMMAND_ACTION_INSTALL = 4;
+  // Write eula.txt for an explicit acceptance (6c-2).
+  COMMAND_ACTION_ACCEPT_EULA = 5;
 }
 
 // Sent once during a restart, after the stop succeeded and before the
-// start begins.
+// start begins. An install sends FETCHING, then CONFIGURING; it is claimed
+// in PROVISIONING, so that one is never sent.
 message Progress {
   int64 epoch = 1;
   string operation_id = 2;
@@ -158,6 +216,9 @@ message Progress {
 enum OperationPhase {
   OPERATION_PHASE_UNSPECIFIED = 0;
   OPERATION_PHASE_STARTING = 1;
+  OPERATION_PHASE_PROVISIONING = 2;
+  OPERATION_PHASE_FETCHING = 3;
+  OPERATION_PHASE_CONFIGURING = 4;
 }
 
 // How a command ended. Exactly one per command. Codes only: the
@@ -198,4 +259,12 @@ enum ResultCode {
   // The helper refused: an earlier action on this server, or a systemd
   // job for it, is still running (S3).
   RESULT_CODE_SERVER_BUSY = 8;
+  // The controller couldn't provide the pinned jar (6c-2).
+  RESULT_CODE_ARTIFACT_UNAVAILABLE = 9;
+  // The jar's size or SHA-256 wasn't the pinned one; nothing was
+  // installed from it.
+  RESULT_CODE_ARTIFACT_MISMATCH = 10;
+  // The controller didn't give an install spec, or gave one this agent
+  // refuses; nothing was done.
+  RESULT_CODE_SPEC_UNAVAILABLE = 11;
 }

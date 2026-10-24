@@ -29,6 +29,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	agentv1 "github.com/sharddevs/waystone_panel/gen/waystone/agent/v1"
+	helperv1 "github.com/sharddevs/waystone_panel/gen/waystone/helper/v1"
 	"github.com/sharddevs/waystone_panel/internal/agent"
 	"github.com/sharddevs/waystone_panel/internal/store"
 )
@@ -312,6 +313,9 @@ func TestResultCodes(t *testing.T) {
 		{outFailed, agentv1.ResultCode_RESULT_CODE_HELPER_UNAVAILABLE, "failed", "helper_unavailable"},
 		{outFailed, agentv1.ResultCode_RESULT_CODE_UNKNOWN_SERVER, "failed", "unknown_server"},
 		{outFailed, agentv1.ResultCode_RESULT_CODE_SERVER_BUSY, "failed", "server_busy"},
+		{outFailed, agentv1.ResultCode_RESULT_CODE_ARTIFACT_UNAVAILABLE, "failed", "artifact_unavailable"},
+		{outFailed, agentv1.ResultCode_RESULT_CODE_ARTIFACT_MISMATCH, "failed", "artifact_mismatch"},
+		{outFailed, agentv1.ResultCode_RESULT_CODE_SPEC_UNAVAILABLE, "failed", "spec_unavailable"},
 		{outUnknown, agentv1.ResultCode_RESULT_CODE_NO_ANSWER, "uncertain", "no_answer"},
 	}
 	for _, c := range cases {
@@ -850,22 +854,24 @@ func TestF5OldEpochResultRefused(t *testing.T) {
 	}
 }
 
-// F14 with the real agent: a server added after the hello is in the
-// database but not in the agent's inventory. Its command comes back
-// FAILED UNKNOWN_SERVER and the runner is never called.
-func TestF14UnknownServer(t *testing.T) {
-	e := setup(t, nil)
+// F14 since 6c-2: a server added after the hello isn't in the agent's
+// inventory until the controller sends ServerAdded, which it does before
+// the server's first command. So the command runs. (The agent's own
+// refusal of a server it doesn't know is tested in internal/agent.)
+func TestServerAddedAfterHello(t *testing.T) {
+	e := setup(t, func(c *Config) { c.ReportInterval = time.Second })
 	r := &fakeRunner{}
-	runRealAgent(t, e.path, r, &fakeHelper{})
+	h := &fakeHelper{}
+	runRealAgent(t, e.path, r, h)
 	waitFor(t, "session", func() bool { return e.srv.sessions.epoch(nodeA) > 0 })
 	late := e.addServers(t, 1)[0]
 	id := e.createOp(t, late, store.ActionStart)
 	e.srv.Kick(nodeA)
-	waitFor(t, "failed", func() bool { return e.op(t, id).state == "failed" })
-	if got := e.op(t, id); got.code != "unknown_server" {
-		t.Errorf("op = %+v", got)
+	waitFor(t, "succeeded", func() bool { return e.op(t, id).state == "succeeded" })
+	if got := r.got(); len(got) != 1 || got[0] != "start "+late {
+		t.Errorf("runner: %v", got)
 	}
-	if got := r.got(); len(got) != 0 {
-		t.Errorf("runner called: %v", got)
-	}
+	// And the reports include it from then on.
+	h.set(map[string]*helperv1.Response{late: {RunState: helperv1.RunState_RUN_STATE_RUNNING}})
+	waitFor(t, "reported", func() bool { s, _ := e.serverState(t, late); return s == "running" })
 }

@@ -26,8 +26,10 @@ const (
 )
 
 const (
-	methodConnect = "/waystone.agent.v1.AgentLinkService/Connect"
-	methodEnroll  = "/waystone.agent.v1.EnrollService/Enroll"
+	methodConnect        = "/waystone.agent.v1.AgentLinkService/Connect"
+	methodGetInstallSpec = "/waystone.agent.v1.AgentLinkService/GetInstallSpec"
+	methodFetchArtifact  = "/waystone.agent.v1.AgentLinkService/FetchArtifact"
+	methodEnroll         = "/waystone.agent.v1.EnrollService/Enroll"
 )
 
 // rule is who may make a call.
@@ -40,8 +42,10 @@ const (
 )
 
 var methodRules = map[string]rule{
-	methodConnect: ruleNode,
-	methodEnroll:  ruleEnroll,
+	methodConnect:        ruleNode,
+	methodGetInstallSpec: ruleNode, // 6c-2; the handler checks the operation (6M5)
+	methodFetchArtifact:  ruleNode, // 6c-2; likewise
+	methodEnroll:         ruleEnroll,
 }
 
 // nodeKey carries the call's node in its context. Only the authorizer
@@ -100,45 +104,70 @@ func isTCP(ctx context.Context) bool {
 	return ok
 }
 
-// unaryAuthz admits Enroll from a TCP peer, and nothing else.
+// unaryAuthz admits Enroll from a TCP peer, and GetInstallSpec from a
+// node with the node in the context. Nothing else.
 func (s *Server) unaryAuthz(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	if methodRules[info.FullMethod] == ruleEnroll && isTCP(ctx) {
-		return handler(ctx, req)
+	switch methodRules[info.FullMethod] {
+	case ruleEnroll:
+		if isTCP(ctx) {
+			return handler(ctx, req)
+		}
+	case ruleNode:
+		n, err := s.admitNode(ctx, info.FullMethod)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := handler(context.WithValue(ctx, nodeKey{}, n), req)
+		dropIfRevoked(ctx, err)
+		return resp, err
 	}
 	s.refusedCall(info.FullMethod)
 	return nil, errNotPermitted
 }
 
-// streamAuthz admits Connect from a node, with the node in the context.
+// streamAuthz admits Connect and FetchArtifact from a node, with the node
+// in the context.
 func (s *Server) streamAuthz(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	if methodRules[info.FullMethod] != ruleNode {
 		s.refusedCall(info.FullMethod)
 		return errNotPermitted
 	}
+	n, err := s.admitNode(ss.Context(), info.FullMethod)
+	if err != nil {
+		return err
+	}
+	err = handler(srv, &nodeStream{ServerStream: ss, ctx: context.WithValue(ss.Context(), nodeKey{}, n)})
+	dropIfRevoked(ss.Context(), err)
+	return err
+}
+
+// admitNode finds the node a ruleNode call acts for, or refuses it.
+func (s *Server) admitNode(ctx context.Context, method string) (store.AgentNode, error) {
 	// A connection whose key wasn't an active node's at the handshake
 	// may only enroll: refused here, with no lookup, so it can't turn
-	// streams into database round-trips (6a-H4).
-	if p, ok := peer.FromContext(ss.Context()); ok {
+	// calls into database round-trips (6a-H4).
+	if p, ok := peer.FromContext(ctx); ok {
 		if a, ok := p.AuthInfo.(TLSAuth); ok && a.conn != nil && !a.conn.isPinned() {
 			if a.revoked {
 				// Said plainly, so a revoked agent backs off and its
 				// log says why; the connection goes soon after.
 				err := streamError(codes.PermissionDenied, MsgNodeRevoked)
-				dropIfRevoked(ss.Context(), err)
-				return err
+				dropIfRevoked(ctx, err)
+				return store.AgentNode{}, err
 			}
-			s.refusedCall(info.FullMethod)
-			return errNotPermitted
+			s.refusedCall(method)
+			return store.AgentNode{}, errNotPermitted
 		}
 	}
-	n, err := s.resolveNode(ss.Context())
-	if err == nil {
-		err = handler(srv, &nodeStream{ServerStream: ss, ctx: context.WithValue(ss.Context(), nodeKey{}, n)})
-	} else if s.logLimit.allow("refused-call/" + info.FullMethod) {
-		s.logf("agent_link=refused method=%s error=%q (at most one line a minute)", info.FullMethod, err.Error())
+	n, err := s.resolveNode(ctx)
+	if err != nil {
+		if s.logLimit.allow("refused-call/" + method) {
+			s.logf("agent_link=refused method=%s error=%q (at most one line a minute)", method, err.Error())
+		}
+		dropIfRevoked(ctx, err)
+		return store.AgentNode{}, err
 	}
-	dropIfRevoked(ss.Context(), err)
-	return err
+	return n, nil
 }
 
 // dropIfRevoked closes a TCP connection soon after its node is refused as
