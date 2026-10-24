@@ -27,6 +27,10 @@
         "since": "2026-10-16T11:49:00Z",
         "observed_at": "2026-10-16T11:59:52Z"
       },
+      "port": 25565,
+      "heap_mib": 4096,
+      "installed": true,
+      "eula_accepted": true,
       "actions": [
         {
           "action": "start",
@@ -39,6 +43,16 @@
         {
           "action": "restart",
           "allowed": true
+        },
+        {
+          "action": "install",
+          "allowed": false,
+          "reason": "server_running"
+        },
+        {
+          "action": "accept_eula",
+          "allowed": false,
+          "reason": "already_accepted"
         }
       ]
     },
@@ -71,6 +85,10 @@
         "observed_at": "2026-10-16T11:56:00Z",
         "last_reported": "not_ready"
       },
+      "port": null,
+      "heap_mib": null,
+      "installed": true,
+      "eula_accepted": true,
       "actions": [
         {
           "action": "start",
@@ -111,6 +129,10 @@
         "since": null,
         "observed_at": null
       },
+      "port": null,
+      "heap_mib": null,
+      "installed": false,
+      "eula_accepted": false,
       "actions": [
         {
           "action": "start",
@@ -124,6 +146,16 @@
         },
         {
           "action": "restart",
+          "allowed": false,
+          "reason": "operation_in_progress"
+        },
+        {
+          "action": "install",
+          "allowed": false,
+          "reason": "operation_in_progress"
+        },
+        {
+          "action": "accept_eula",
           "allowed": false,
           "reason": "operation_in_progress"
         }

@@ -164,6 +164,14 @@ describe('server page (wireframes §3)', () => {
     expect(screen.getAllByText('Unavailable while the node is unreachable.')).toHaveLength(1)
   })
 
+  it('install and the EULA are listed by the API but get no button here yet (6d)', async () => {
+    app(serverPath(survival))
+    await screen.findByRole('heading', { level: 1, name: 'Survival World' })
+    expect(survival.actions.map((a) => a.action)).toEqual(['start', 'stop', 'restart', 'install', 'accept_eula'])
+    expect(screen.getAllByRole('button', { name: /^(Start|Stop|Restart)$/ })).toHaveLength(3)
+    expect(screen.queryByRole('button', { name: /install|eula/i })).toBeNull()
+  })
+
   it('no permitted actions at all: no buttons', async () => {
     app(serverPath(survival), (c) => (c.path === `/api/v1/servers/${survival.id}` ? { status: 200, body: { ...survival, actions: [] } } : undefined))
     await screen.findByRole('heading', { level: 1, name: 'Survival World' })

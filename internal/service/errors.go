@@ -29,6 +29,12 @@ const (
 	CodeNodeUnreachable            = "node_unreachable"
 	CodeNodeRevoked                = "node_revoked"
 	CodeEnrollmentUnavailable      = "enrollment_unavailable"
+	CodePortTaken                  = "port_taken"
+	CodeServerRunning              = "server_running"
+	CodeNotInstalled               = "not_installed"
+	CodeEulaNotAccepted            = "eula_not_accepted"
+	CodeAlreadyAccepted            = "already_accepted"
+	CodeNodeFull                   = "node_full"
 	CodeInternal                   = "internal"
 )
 
@@ -55,6 +61,12 @@ var errorInfo = map[string]struct {
 	CodeNodeUnreachable:            {http.StatusConflict, "The server's node is not connected. Try again once it is back."},
 	CodeNodeRevoked:                {http.StatusConflict, "The server's node has been revoked."},
 	CodeEnrollmentUnavailable:      {http.StatusConflict, "Nodes can't be added: the controller has no agent listener on a reachable address."},
+	CodePortTaken:                  {http.StatusConflict, "Another server on this node already uses that port."},
+	CodeServerRunning:              {http.StatusConflict, "Stop the server before installing it again."},
+	CodeNotInstalled:               {http.StatusConflict, "The server hasn't been installed yet."},
+	CodeEulaNotAccepted:            {http.StatusConflict, "Accept the Minecraft EULA before starting the server."},
+	CodeAlreadyAccepted:            {http.StatusConflict, "The Minecraft EULA has already been accepted for this server."},
+	CodeNodeFull:                   {http.StatusConflict, "This node already has as many servers as it can manage."},
 	CodeInternal:                   {http.StatusInternalServerError, "Internal error."},
 }
 
@@ -147,6 +159,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 //   - ErrNodeUnreachable: node_unreachable (no operation ID).
 //   - ErrNodeRevoked: node_revoked.  ErrNotAdmin: forbidden (run
 //     refuses non-admins first; this is the store's own check).
+//   - ErrPortTaken, ErrServerRunning, ErrNotInstalled,
+//     ErrEulaNotAccepted, ErrAlreadyAccepted: their own codes (6c).
+//   - ErrTooManyServers: node_full (6c).
 //   - anything else (ErrInvalidActor included: the actor comes from the
 //     kernel, so a bad one is our bug): internal.
 //
@@ -203,6 +218,24 @@ func errorFor(err error) *Error {
 
 	case errors.Is(err, store.ErrNotAdmin):
 		return newError(CodeForbidden, err)
+
+	case errors.Is(err, store.ErrPortTaken):
+		return newError(CodePortTaken, err)
+
+	case errors.Is(err, store.ErrServerRunning):
+		return newError(CodeServerRunning, err)
+
+	case errors.Is(err, store.ErrNotInstalled):
+		return newError(CodeNotInstalled, err)
+
+	case errors.Is(err, store.ErrEulaNotAccepted):
+		return newError(CodeEulaNotAccepted, err)
+
+	case errors.Is(err, store.ErrAlreadyAccepted):
+		return newError(CodeAlreadyAccepted, err)
+
+	case errors.Is(err, store.ErrTooManyServers):
+		return newError(CodeNodeFull, err)
 
 	default:
 		return newError(CodeInternal, err)

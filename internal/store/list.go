@@ -28,6 +28,14 @@ type Server struct {
 	ProfileVersion *string
 	Runtime        string
 	DesiredState   string // "running" or "stopped"
+	// Port and HeapMiB are config's port and heap_mib, nil when unset
+	// (servers made before 6c may have neither).
+	Port    *uint32
+	HeapMiB *uint32
+	// Installed and EulaAccepted: an install and an EULA operation have
+	// succeeded (00009 sets them; older servers count as both).
+	Installed    bool
+	EulaAccepted bool
 
 	NodeName       string
 	NodeLastSeenAt *time.Time // nil until the node's agent first says hello
@@ -69,6 +77,7 @@ const MaxListLimit = 100
 // member both.
 const serverColumns = `s.server_id::text, s.tenant_id::text, s.node_id::text, s.name, s.profile,
 	nullif(s.config->>'version', ''), s.runtime, s.desired_state,
+	s.config->>'port', s.config->>'heap_mib', s.installed_at IS NOT NULL, s.eula_accepted_at IS NOT NULL,
 	n.name, n.last_seen_at, n.revoked_at IS NOT NULL,
 	s.process_state, s.process_since, s.process_observed_at,
 	s.readiness, s.readiness_since, s.readiness_observed_at,
@@ -84,12 +93,20 @@ const serverFrom = ` FROM waystone.servers s
 
 func scanServer(row interface{ Scan(...any) error }) (Server, error) {
 	var s Server
+	var port, heap *string
 	err := row.Scan(&s.ID, &s.TenantID, &s.NodeID, &s.Name, &s.Profile,
 		&s.ProfileVersion, &s.Runtime, &s.DesiredState,
+		&port, &heap, &s.Installed, &s.EulaAccepted,
 		&s.NodeName, &s.NodeLastSeenAt, &s.NodeRevoked,
 		&s.ProcessState, &s.ProcessSince, &s.ProcessObservedAt,
 		&s.Readiness, &s.ReadinessSince, &s.ReadinessObservedAt,
 		&s.Blocking)
+	if p, ok := GamePort(port); ok {
+		s.Port = &p
+	}
+	if h, ok := GamePort(heap); ok {
+		s.HeapMiB = &h
+	}
 	return s, err
 }
 

@@ -4,6 +4,7 @@ package view
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ func none(store.Action) bool { return false }
 // null when nothing is left. Only the actions allowed says yes to remain.
 func TestActionsForRole(t *testing.T) {
 	s := store.Server{}
-	if got := ActionsFor(all, s, true); len(got) != 3 {
+	if got := ActionsFor(all, s, true); len(got) != 5 {
 		t.Errorf("admin: %+v", got)
 	}
 	onlyStop := func(a store.Action) bool { return a == store.ActionStop }
@@ -51,10 +52,53 @@ func TestActionsReasonOrder(t *testing.T) {
 		{store.StateUncertain, false, "node_unreachable"},
 	}
 	for _, tc := range cases {
-		for _, a := range ActionsFor(all, store.Server{Blocking: tc.blocking}, tc.reachable) {
+		// Set up and stopped, so the server's own state refuses nothing
+		// but accepting the EULA again.
+		ready := store.Server{Blocking: tc.blocking, Installed: true, EulaAccepted: true, ProcessState: "stopped"}
+		for _, a := range ActionsFor(all, ready, tc.reachable) {
+			if a.Action == "accept_eula" {
+				continue
+			}
 			if a.Reason != tc.reason || a.Allowed != (tc.reason == "") {
 				t.Errorf("blocking %q reachable %v: %+v, want reason %q", tc.blocking, tc.reachable, a, tc.reason)
 			}
+		}
+	}
+}
+
+// 6c: the server's own state comes after the node and the operations,
+// and is the same rule CreateOperation applies.
+func TestActionsServerState(t *testing.T) {
+	reasons := func(s store.Server) map[string]string {
+		out := map[string]string{}
+		for _, a := range ActionsFor(all, s, true) {
+			if a.Allowed != (a.Reason == "") {
+				t.Errorf("%+v", a)
+			}
+			out[a.Action] = a.Reason
+		}
+		return out
+	}
+	for name, c := range map[string]struct {
+		s    store.Server
+		want map[string]string
+	}{
+		"new": {store.Server{ProcessState: "unknown"}, map[string]string{
+			"start": "not_installed", "stop": "", "restart": "not_installed", "install": "", "accept_eula": "not_installed"}},
+		"installed, unknown": {store.Server{Installed: true, ProcessState: "unknown"}, map[string]string{
+			"start": "eula_not_accepted", "stop": "", "restart": "eula_not_accepted", "install": "server_running", "accept_eula": ""}},
+		"new, stopped": {store.Server{ProcessState: "stopped"}, map[string]string{
+			"start": "not_installed", "stop": "", "restart": "not_installed", "install": "", "accept_eula": "not_installed"}},
+		"installed": {store.Server{Installed: true, ProcessState: "failed"}, map[string]string{
+			"start": "eula_not_accepted", "stop": "", "restart": "eula_not_accepted", "install": "", "accept_eula": ""}},
+		"running": {store.Server{Installed: true, EulaAccepted: true, ProcessState: "running"}, map[string]string{
+			"start": "", "stop": "", "restart": "", "install": "server_running", "accept_eula": "already_accepted"}},
+		"busy": {store.Server{Blocking: store.StatePending, ProcessState: "stopped"}, map[string]string{
+			"start": "operation_in_progress", "stop": "operation_in_progress", "restart": "operation_in_progress",
+			"install": "operation_in_progress", "accept_eula": "operation_in_progress"}},
+	} {
+		if got := reasons(c.s); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
 		}
 	}
 }

@@ -47,32 +47,36 @@ func TestWebRoutesCovered(t *testing.T) {
 	}
 	// Every route, with the CSRF policy it must have and whether it needs
 	// a session: the four session routes (5a-2), the browser API (5b,
-	// scope §5, and the Nodes API of 6b) and the UI (5c, §6). Nothing else may be on web.sock.
+	// scope §5, the Nodes API of 6b and create/install of 6c) and the UI
+	// (5c, §6). Nothing else may be on web.sock.
 	type policy struct {
 		csrf    web.CSRFPolicy
 		session bool
 	}
 	want := map[string]policy{
-		"GET /healthz":                         {web.CSRFNotApplicable, false},
-		"POST /api/v1/session":                 {web.CSRFPreSession, false},
-		"GET /api/v1/session":                  {web.CSRFNotApplicable, true},
-		"DELETE /api/v1/session":               {web.CSRFRequired, true},
-		"PATCH /api/v1/session/preferences":    {web.CSRFRequired, true},
-		"GET /api/v1/servers":                  {web.CSRFNotApplicable, true},
-		"GET /api/v1/servers/{id}":             {web.CSRFNotApplicable, true},
-		"POST /api/v1/servers/{id}/start":      {web.CSRFRequired, true},
-		"POST /api/v1/servers/{id}/stop":       {web.CSRFRequired, true},
-		"POST /api/v1/servers/{id}/restart":    {web.CSRFRequired, true},
-		"GET /api/v1/operations":               {web.CSRFNotApplicable, true},
-		"GET /api/v1/operations/{id}":          {web.CSRFNotApplicable, true},
-		"POST /api/v1/operations/{id}/resolve": {web.CSRFRequired, true},
-		"GET /api/v1/nodes":                    {web.CSRFNotApplicable, true},
-		"GET /api/v1/nodes/{id}":               {web.CSRFNotApplicable, true},
-		"POST /api/v1/nodes/{id}/revoke":       {web.CSRFRequired, true},
-		"GET /api/v1/nodes/enrollments":        {web.CSRFNotApplicable, true},
-		"POST /api/v1/nodes/enrollments":       {web.CSRFRequired, true},
-		"GET /assets/{file...}":                {web.CSRFNotApplicable, false},
-		"GET /{path...}":                       {web.CSRFNotApplicable, false},
+		"GET /healthz":                          {web.CSRFNotApplicable, false},
+		"POST /api/v1/session":                  {web.CSRFPreSession, false},
+		"GET /api/v1/session":                   {web.CSRFNotApplicable, true},
+		"DELETE /api/v1/session":                {web.CSRFRequired, true},
+		"PATCH /api/v1/session/preferences":     {web.CSRFRequired, true},
+		"GET /api/v1/servers":                   {web.CSRFNotApplicable, true},
+		"POST /api/v1/servers":                  {web.CSRFRequired, true},
+		"POST /api/v1/servers/{id}/install":     {web.CSRFRequired, true},
+		"POST /api/v1/servers/{id}/accept-eula": {web.CSRFRequired, true},
+		"GET /api/v1/servers/{id}":              {web.CSRFNotApplicable, true},
+		"POST /api/v1/servers/{id}/start":       {web.CSRFRequired, true},
+		"POST /api/v1/servers/{id}/stop":        {web.CSRFRequired, true},
+		"POST /api/v1/servers/{id}/restart":     {web.CSRFRequired, true},
+		"GET /api/v1/operations":                {web.CSRFNotApplicable, true},
+		"GET /api/v1/operations/{id}":           {web.CSRFNotApplicable, true},
+		"POST /api/v1/operations/{id}/resolve":  {web.CSRFRequired, true},
+		"GET /api/v1/nodes":                     {web.CSRFNotApplicable, true},
+		"GET /api/v1/nodes/{id}":                {web.CSRFNotApplicable, true},
+		"POST /api/v1/nodes/{id}/revoke":        {web.CSRFRequired, true},
+		"GET /api/v1/nodes/enrollments":         {web.CSRFNotApplicable, true},
+		"POST /api/v1/nodes/enrollments":        {web.CSRFRequired, true},
+		"GET /assets/{file...}":                 {web.CSRFNotApplicable, false},
+		"GET /{path...}":                        {web.CSRFNotApplicable, false},
 	}
 	for _, rt := range h.Routes() {
 		key := rt.Method + " " + rt.Pattern

@@ -28,6 +28,10 @@ function server(o: {
     desired_state: o.desired ?? 'stopped',
     process,
     readiness: { state: o.readiness ?? 'unknown', since: null, observed_at: null },
+    port: null,
+    heap_mib: null,
+    installed: true,
+    eula_accepted: true,
     actions: [],
   }
 }

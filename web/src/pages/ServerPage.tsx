@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ApiError, type Dimension, type Operation, type Server, type ServerAction } from '../api'
+import { ApiError, isServerAction, type Dimension, type Operation, type Server, type ServerAction } from '../api'
 import { StatusLine } from '../components/StatusMark'
 import { actionName, ago, errorText, formatTime, gameLine, isActive, outcome, stateMark, stateWords, took } from '../format'
 import { useLive } from '../live'
@@ -232,13 +232,16 @@ function Facts<S extends string>({ label, dim, now }: { label: string; dim: Dime
 
 // Actions come from the server's actions list (B8): permission → not
 // there at all, state → disabled with its reason underneath.
+// Install and the EULA get their own controls in 6d; only the buttons'
+// actions show here.
 function Actions({ server: s, pending, onAct }: { server: Server; pending: ServerAction | null; onAct: (a: ServerAction) => void }) {
-  if (s.actions.length === 0) return null
-  const reasons = [...new Set(s.actions.filter((a) => !a.allowed).map((a) => reasonText(a.reason)))]
+  const actions = s.actions.flatMap((a) => (isServerAction(a.action) ? [{ ...a, action: a.action }] : []))
+  if (actions.length === 0) return null
+  const reasons = [...new Set(actions.filter((a) => !a.allowed).map((a) => reasonText(a.reason)))]
   return (
     <div className="actions">
       <div className="action-buttons">
-        {s.actions.map((a) => (
+        {actions.map((a) => (
           <button
             key={a.action}
             type="button"

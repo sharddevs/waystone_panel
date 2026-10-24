@@ -25,6 +25,10 @@
     "since": "2026-10-16T11:49:00Z",
     "observed_at": "2026-10-16T11:59:52Z"
   },
+  "port": 25565,
+  "heap_mib": 4096,
+  "installed": true,
+  "eula_accepted": true,
   "actions": [
     {
       "action": "start",
@@ -37,6 +41,16 @@
     {
       "action": "restart",
       "allowed": true
+    },
+    {
+      "action": "install",
+      "allowed": false,
+      "reason": "server_running"
+    },
+    {
+      "action": "accept_eula",
+      "allowed": false,
+      "reason": "already_accepted"
     }
   ]
 }

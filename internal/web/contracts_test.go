@@ -32,6 +32,9 @@ var allowedHeaderUses = map[string]string{
 	// with a relative Location. It is not a redirect and not built from
 	// the request.
 	"internal/service/handlers.go": "location",
+	// The 201 for a new server (6c) points at it the same way: a fixed
+	// path and the ID the store made.
+	"internal/service/create.go": "location",
 }
 
 // websocketImports may only be imported inside this package (C-W6).

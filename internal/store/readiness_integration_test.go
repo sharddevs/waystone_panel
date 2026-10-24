@@ -101,9 +101,12 @@ func TestReportReadiness(t *testing.T) {
 
 func TestNodeHelloGamePorts(t *testing.T) {
 	e := setup(t)
-	// a1 has a port, a2 a value that isn't one; b1 is another node's.
+	// a1 has a port, a2 none; b1 is another node's. A value that isn't a
+	// port can't be stored at all since 00009 (6H4), even by the owner.
 	mustExec(t, e.owner, `UPDATE waystone.servers SET config = '{"port": 25565}' WHERE server_id = $1`, serverA1)
-	mustExec(t, e.owner, `UPDATE waystone.servers SET config = '{"port": "abc"}' WHERE server_id = $1`, serverA2)
+	if _, err := e.owner.Exec(context.Background(), `UPDATE waystone.servers SET config = '{"port": "abc"}' WHERE server_id = $1`, serverA2); err == nil {
+		t.Error("the owner stored port \"abc\"")
+	}
 	mustExec(t, e.owner, `UPDATE waystone.servers SET config = '{"port": 25570}' WHERE server_id = $1`, serverB1)
 
 	var ids []string

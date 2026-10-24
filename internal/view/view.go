@@ -95,7 +95,14 @@ type Server struct {
 	DesiredState string    `json:"desired_state"`
 	Process      Dimension `json:"process"`
 	Readiness    Dimension `json:"readiness"`
-	Actions      []Action  `json:"actions"`
+	// Port and HeapMiB are null for a server made before 6c without them.
+	Port    *uint32 `json:"port"`
+	HeapMiB *uint32 `json:"heap_mib"`
+	// Installed and EulaAccepted: an install and an EULA acceptance have
+	// succeeded (6c). Start waits for both.
+	Installed    bool     `json:"installed"`
+	EulaAccepted bool     `json:"eula_accepted"`
+	Actions      []Action `json:"actions"`
 }
 
 func ActorOf(a store.Actor) Actor {
@@ -153,6 +160,8 @@ var serverActions = []struct {
 	{"start", store.ActionStart},
 	{"stop", store.ActionStop},
 	{"restart", store.ActionRestart},
+	{"install", store.ActionInstall},
+	{"accept_eula", store.ActionAcceptEula},
 }
 
 // The B8 reason codes. Fixed strings the UI maps to text.
@@ -161,15 +170,47 @@ const (
 	reasonNodeUnreachable     = "node_unreachable"
 	reasonPreviousUncertain   = "previous_operation_uncertain"
 	reasonOperationInProgress = "operation_in_progress"
+	reasonNotInstalled        = "not_installed"
+	reasonEulaNotAccepted     = "eula_not_accepted"
+	reasonServerRunning       = "server_running"
+	reasonAlreadyAccepted     = "already_accepted"
 )
+
+// stateReason is the reason the server's own state refuses action, or
+// "" (6c): start and restart wait for the install and the EULA, an
+// install for the server to stop, and the EULA is accepted once, after
+// an install. The same checks, in the same order, as CreateOperation's.
+func stateReason(a store.Action, s store.Server) string {
+	switch a {
+	case store.ActionStart, store.ActionRestart:
+		if !s.Installed {
+			return reasonNotInstalled
+		}
+		if !s.EulaAccepted {
+			return reasonEulaNotAccepted
+		}
+	case store.ActionInstall:
+		if s.Installed && s.ProcessState != "stopped" && s.ProcessState != "failed" {
+			return reasonServerRunning
+		}
+	case store.ActionAcceptEula:
+		if !s.Installed {
+			return reasonNotInstalled
+		}
+		if s.EulaAccepted {
+			return reasonAlreadyAccepted
+		}
+	}
+	return ""
+}
 
 // ActionsFor lists what the actor may do to s (B8). allowed reports
 // whether the actor's role may perform an action at all; an action it
 // may not is left out. The others carry allowed=false and the first
 // reason that applies, in this order: node revoked (D5), node
 // unreachable, an unresolved uncertain operation, an operation in
-// progress. These are exactly the
-// refusals CreateOperation makes, in the same order.
+// progress, then the server's own state (stateReason). These are exactly
+// the refusals CreateOperation makes, in the same order.
 func ActionsFor(allowed func(store.Action) bool, s store.Server, reachable bool) []Action {
 	reason := ""
 	switch {
@@ -187,7 +228,11 @@ func ActionsFor(allowed func(store.Action) bool, s store.Server, reachable bool)
 		if !allowed(a.action) {
 			continue
 		}
-		out = append(out, Action{Action: a.name, Allowed: reason == "", Reason: reason})
+		r := reason
+		if r == "" {
+			r = stateReason(a.action, s)
+		}
+		out = append(out, Action{Action: a.name, Allowed: r == "", Reason: r})
 	}
 	return out
 }
@@ -217,6 +262,10 @@ func ServerOf(s store.Server, allowed func(store.Action) bool, now time.Time) Se
 		Process:      dimension(s.ProcessState, s.ProcessSince, s.ProcessObservedAt, isStale(s.ProcessObservedAt, now)),
 		Readiness: dimension(s.Readiness, s.ReadinessSince, s.ReadinessObservedAt,
 			isStale(s.ReadinessObservedAt, now) || !reachable),
-		Actions: ActionsFor(allowed, s, reachable),
+		Port:         s.Port,
+		HeapMiB:      s.HeapMiB,
+		Installed:    s.Installed,
+		EulaAccepted: s.EulaAccepted,
+		Actions:      ActionsFor(allowed, s, reachable),
 	}
 }

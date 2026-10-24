@@ -43,6 +43,17 @@ var (
 	// ErrNodeRevoked: the server's node has been revoked, so it can't run
 	// anything new (D5).
 	ErrNodeRevoked = errors.New("node revoked")
+	// ErrPortTaken: another server on the node has the port, or it is the
+	// controller's own agent port (6c-1).
+	ErrPortTaken = errors.New("port taken")
+	// ErrServerRunning: an install needs the server stopped.
+	ErrServerRunning = errors.New("server is not stopped")
+	// ErrNotInstalled: the server hasn't been installed yet.
+	ErrNotInstalled = errors.New("server not installed")
+	// ErrEulaNotAccepted: start and restart wait for the Minecraft EULA.
+	ErrEulaNotAccepted = errors.New("eula not accepted")
+	// ErrAlreadyAccepted: the EULA was accepted already.
+	ErrAlreadyAccepted = errors.New("eula already accepted")
 )
 
 // InProgressError says which operation blocks a new one. errors.Is(err,

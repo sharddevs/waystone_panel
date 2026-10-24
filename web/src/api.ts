@@ -4,7 +4,7 @@
 // session routes (5a-2). The shapes mirror internal/view; the decoders
 // keep them honest (Q9, api.contract.test.ts).
 
-import { array, bool, nullable, object, oneOf, str, time, type Decoder } from './decode'
+import { array, bool, int, nullable, object, oneOf, str, time, type Decoder } from './decode'
 import { densities, modes, themes, type Preferences } from './appearance'
 
 // ---- Shapes (internal/view) ----
@@ -12,12 +12,20 @@ import { densities, modes, themes, type Preferences } from './appearance'
 export const processStates = ['stopped', 'starting', 'running', 'stopping', 'failed', 'unknown'] as const
 export const readinessStates = ['ready', 'not_ready', 'unknown', 'not_supported'] as const
 export const operationStates = ['pending', 'running', 'succeeded', 'failed', 'uncertain'] as const
+// serverActions have buttons on the server page; listedActions are every
+// action the API lists (install and accept_eula since 6c).
 export const serverActions = ['start', 'stop', 'restart'] as const
+export const listedActions = [...serverActions, 'install', 'accept_eula'] as const
 
 export type ProcessState = (typeof processStates)[number]
 export type ReadinessState = (typeof readinessStates)[number]
 export type OperationState = (typeof operationStates)[number]
 export type ServerAction = (typeof serverActions)[number]
+export type ListedAction = (typeof listedActions)[number]
+
+export function isServerAction(a: string): a is ServerAction {
+  return (serverActions as readonly string[]).includes(a)
+}
 
 export interface Actor {
   type: string
@@ -68,7 +76,11 @@ export interface Server {
   desired_state: 'running' | 'stopped'
   process: Dimension<ProcessState>
   readiness: Dimension<ReadinessState>
-  actions: { action: ServerAction; allowed: boolean; reason?: string }[]
+  port: number | null
+  heap_mib: number | null
+  installed: boolean
+  eula_accepted: boolean
+  actions: { action: ListedAction; allowed: boolean; reason?: string }[]
 }
 
 export interface Session {
@@ -125,7 +137,11 @@ export const decodeServer: Decoder<Server> = object({
   desired_state: oneOf(['running', 'stopped'] as const),
   process: dimension(processStates),
   readiness: dimension(readinessStates),
-  actions: array(object({ action: oneOf(serverActions), allowed: bool }, { reason: str })),
+  port: nullable(int),
+  heap_mib: nullable(int),
+  installed: bool,
+  eula_accepted: bool,
+  actions: array(object({ action: oneOf(listedActions), allowed: bool }, { reason: str })),
 })
 
 export const decodeServerList: Decoder<{ servers: Server[] }> = object({ servers: array(decodeServer) })

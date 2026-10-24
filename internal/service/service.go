@@ -98,10 +98,13 @@ func (s *Service) Routes() []Route {
 	}
 	return []Route{
 		{http.MethodGet, "/api/v1/servers", http.HandlerFunc(s.handleListServers)},
+		{http.MethodPost, createRoute, http.HandlerFunc(s.handleCreateServer)},
 		{http.MethodGet, "/api/v1/servers/{id}", http.HandlerFunc(s.handleGetServer)},
 		action(store.ActionStart, "start"),
 		action(store.ActionStop, "stop"),
 		action(store.ActionRestart, "restart"),
+		action(store.ActionInstall, "install"),
+		action(store.ActionAcceptEula, "accept-eula"),
 		{http.MethodGet, "/api/v1/operations", http.HandlerFunc(s.handleListOperations)},
 		{http.MethodGet, "/api/v1/operations/{id}", http.HandlerFunc(s.handleGetOperation)},
 		{http.MethodPost, "/api/v1/operations/{id}/resolve", http.HandlerFunc(s.handleResolve)},

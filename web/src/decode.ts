@@ -25,6 +25,11 @@ export const bool: Decoder<boolean> = (v, path) => {
   return v
 }
 
+export const int: Decoder<number> = (v, path) => {
+  if (typeof v !== 'number' || !Number.isSafeInteger(v)) throw new DecodeError(path, 'an integer')
+  return v
+}
+
 export function nullable<T>(d: Decoder<T>): Decoder<T | null> {
   return (v, path) => (v === null ? null : d(v, path))
 }

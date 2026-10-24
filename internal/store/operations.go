@@ -23,6 +23,12 @@ const (
 	ActionStart   Action = "server.start"
 	ActionStop    Action = "server.stop"
 	ActionRestart Action = "server.restart"
+	// ActionInstall installs the server's files (6c). A create inserts
+	// the first one; later ones reinstall a stopped server.
+	ActionInstall Action = "server.install"
+	// ActionAcceptEula records a person's acceptance of the Minecraft
+	// EULA (stage 3c: explicit, never inferred).
+	ActionAcceptEula Action = "server.accept_eula"
 )
 
 // OperationState is where an operation is in its life. These are the
@@ -52,7 +58,7 @@ type Operation struct {
 	NodeID       string // the server's node at request time, kept even if the server moves later
 	Action       Action
 	State        OperationState
-	Phase        string // "", or "stopping"/"starting" during a restart
+	Phase        string // "", "stopping"/"starting" during a restart, "provisioning"/"fetching"/"configuring" during an install
 	Actor        Actor  // who asked, copied at request time
 	ErrorCode    string
 	ErrorSummary string
@@ -151,8 +157,15 @@ func scanOperation(row pgx.Row) (Operation, error) {
 //     reachable (NodeReachable at t.Now()), ErrNodeUnreachable. Nothing
 //     is written (V1, D5).
 //  4. If the server already has a pending, running or unresolved
-//     uncertain operation, return an *InProgressError naming it.
-//  5. Insert the operation as pending and set the server's desired state.
+//     uncertain operation, return an *InProgressError naming it. Then
+//     the server's own state: start and restart need it installed
+//     (ErrNotInstalled) with the EULA accepted (ErrEulaNotAccepted); an
+//     install needs it stopped or failed, or never installed
+//     (ErrServerRunning); accepting
+//     the EULA needs it installed, and not accepted yet
+//     (ErrAlreadyAccepted).
+//  5. Insert the operation as pending and, for start, stop and restart,
+//     set the server's desired state.
 //     The unique index operations_one_unfinished backs up step 4: if it
 //     still fires (23505), that's ErrOperationInProgress too.
 //  6. With a key, insert the key row, or update it when step 3 allowed
@@ -168,7 +181,7 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 	}
 
 	switch in.Action {
-	case ActionStart, ActionStop, ActionRestart:
+	case ActionStart, ActionStop, ActionRestart, ActionInstall, ActionAcceptEula:
 		// One of ours.
 	default:
 		return Operation{}, false, fmt.Errorf("%w: invalid action", ErrInvalidInput)
@@ -189,14 +202,15 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 	// FOR UPDATE holds this row until we commit or roll back, so creates
 	// for the same server run one at a time. RLS hides servers in other
 	// tenants, so they look missing, the same as servers that don't exist.
-	var nodeID string
+	var nodeID, processState string
+	var installed, eulaAccepted bool
 
 	err = t.tx.QueryRow(ctx, `
-    SELECT node_id::text
+    SELECT node_id::text, process_state, installed_at IS NOT NULL, eula_accepted_at IS NOT NULL
     FROM waystone.servers
     WHERE server_id = $1
     FOR UPDATE
-`, in.ServerID).Scan(&nodeID)
+`, in.ServerID).Scan(&nodeID, &processState, &installed, &eulaAccepted)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Operation{}, false, ErrNotFound
@@ -204,69 +218,13 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 	if err != nil {
 		return Operation{}, false, fmt.Errorf("lock server: %w", err)
 	}
-	reuseExpiredKey := false
-	// Step 3. The key row is locked as well, so two requests with the same
-	// expired key can't both decide to reuse it.
-	if in.IdempotencyKey != "" {
-		var existingOperationID string
-		var existingFingerprint []byte
-		var createdAt time.Time
-
-		err := t.tx.QueryRow(ctx, `
-        SELECT operation_id::text, request_sha256, created_at
-        FROM waystone.idempotency_keys
-        WHERE tenant_id = $1
-          AND actor_type = $2
-          AND actor_id = $3
-          AND key = $4
-        FOR UPDATE
-    `,
-			t.TenantID(),
-			t.Actor().Type,
-			t.Actor().ID,
-			in.IdempotencyKey,
-		).Scan(
-			&existingOperationID,
-			&existingFingerprint,
-			&createdAt,
-		)
-
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return Operation{}, false, fmt.Errorf(
-				"look up idempotency key: %w", err,
-			)
-		}
-
-		if err == nil {
-			existingOp, err := t.GetOperation(ctx, existingOperationID)
-			if err != nil {
-				return Operation{}, false, fmt.Errorf(
-					"get idempotent operation: %w", err,
-				)
-			}
-
-			// A key whose operation is still pending, running or unresolved
-			// never expires. Otherwise the same request could run twice.
-			finished := existingOp.State == StateSucceeded ||
-				existingOp.State == StateFailed ||
-				(existingOp.State == StateUncertain &&
-					existingOp.Resolution != nil)
-
-			expired := !t.Now().Before(createdAt.Add(KeyLifetime))
-
-			if expired && finished {
-				// The key gets pointed at the new operation in step 6.
-				reuseExpiredKey = true
-			} else {
-				// A live key must belong to exactly the same request.
-				if !bytes.Equal(existingFingerprint, in.RequestSHA256[:]) {
-					return Operation{}, false, ErrIdempotencyKeyReused
-				}
-
-				// It's a retry, so return the original instead of a new one.
-				return existingOp, true, nil
-			}
-		}
+	// Step 3.
+	existing, reuseExpiredKey, err := t.lookupKey(ctx, in.IdempotencyKey, in.RequestSHA256)
+	if err != nil {
+		return Operation{}, false, err
+	}
+	if existing != nil {
+		return *existing, true, nil
 	}
 
 	// A new request for a node that isn't reachable is refused rather than
@@ -323,15 +281,77 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 		)
 	}
 
-	operationID, err := ids.NewV7()
-	if err != nil {
-		return Operation{}, false, fmt.Errorf(
-			"generate operation ID: %w", err,
-		)
+	// The server's own state, in the order of the reason codes (view).
+	switch in.Action {
+	case ActionStart, ActionRestart:
+		if !installed {
+			return Operation{}, false, ErrNotInstalled
+		}
+		if !eulaAccepted {
+			return Operation{}, false, ErrEulaNotAccepted
+		}
+	case ActionInstall:
+		// The last report, however old: an install over a running
+		// server is the known gap this closes (D7). A server that was
+		// never installed can't have been started (start needs it), and
+		// before its unit exists the helper can only say not_found, so
+		// it may install whatever the report says. The agent checks
+		// again before it touches anything.
+		if installed && processState != "stopped" && processState != "failed" {
+			return Operation{}, false, ErrServerRunning
+		}
+	case ActionAcceptEula:
+		if !installed {
+			return Operation{}, false, ErrNotInstalled
+		}
+		if eulaAccepted {
+			return Operation{}, false, ErrAlreadyAccepted
+		}
 	}
 
-	// Step 5. node_id is copied from the server row we locked, so history
-	// keeps the node the request was meant for.
+	op, err = t.insertOperation(ctx, in.ServerID, nodeID, in.Action)
+	if err != nil {
+		return Operation{}, false, err
+	}
+
+	// Restart ends with the server running, the same as start. Install
+	// and the EULA leave what was asked for alone.
+	desiredState := ""
+	switch in.Action {
+	case ActionStart, ActionRestart:
+		desiredState = "running"
+	case ActionStop:
+		desiredState = "stopped"
+	}
+	if desiredState != "" {
+		_, err = t.tx.Exec(ctx, `
+	UPDATE waystone.servers
+	SET desired_state = $1
+	WHERE server_id = $2
+`, desiredState, in.ServerID)
+		if err != nil {
+			return Operation{}, false, fmt.Errorf(
+				"update server desired state: %w", err,
+			)
+		}
+	}
+
+	// Step 6: store the key next to the new operation.
+	if err := t.storeKey(ctx, in.IdempotencyKey, in.RequestSHA256, op.ID, reuseExpiredKey); err != nil {
+		return Operation{}, false, err
+	}
+	return op, false, nil
+}
+
+// insertOperation is step 5 of CreateOperation: a new pending operation
+// for a server whose row the caller holds locked. node_id is copied from
+// that row, so history keeps the node the request was meant for.
+func (t *Tx) insertOperation(ctx context.Context, serverID, nodeID string, action Action) (Operation, error) {
+	operationID, err := ids.NewV7()
+	if err != nil {
+		return Operation{}, fmt.Errorf("generate operation ID: %w", err)
+	}
+
 	row := t.tx.QueryRow(ctx, `
     INSERT INTO waystone.operations (
         tenant_id,
@@ -353,16 +373,16 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
     RETURNING `+operationColumns,
 		t.TenantID(),
 		operationID,
-		in.ServerID,
+		serverID,
 		nodeID,
-		in.Action,
+		action,
 		t.Actor().Type,
 		t.Actor().ID,
 		t.Actor().Name,
 		t.Now(),
 	)
 
-	op, err = scanOperation(row)
+	op, err := scanOperation(row)
 	if err != nil {
 		// The server lock makes this unreachable through CreateOperation
 		// today. It's here for any future writer that skips the lock.
@@ -371,37 +391,92 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 		if errors.As(err, &pgErr) &&
 			pgErr.Code == "23505" &&
 			pgErr.ConstraintName == "operations_one_unfinished" {
-			return Operation{}, false, ErrOperationInProgress
+			return Operation{}, ErrOperationInProgress
 		}
 
-		return Operation{}, false, fmt.Errorf("insert operation: %w", err)
+		return Operation{}, fmt.Errorf("insert operation: %w", err)
 	}
+	return op, nil
+}
 
-	// Restart ends with the server running, the same as start.
-	desiredState := "running"
-
-	if in.Action == ActionStop {
-		desiredState = "stopped"
+// lookupKey is step 3 of CreateOperation, for a request with key (none
+// is fine: nil, false, nil). The key row is locked, so two requests with
+// the same expired key can't both decide to reuse it.
+//   - expired, and its operation is finished or resolved: reuse=true,
+//     and storeKey points it at the new operation;
+//   - otherwise the same fingerprint is a retry, and the original
+//     operation comes back, whatever its state; a different one is
+//     ErrIdempotencyKeyReused.
+func (t *Tx) lookupKey(ctx context.Context, key string, fingerprint [32]byte) (existing *Operation, reuse bool, err error) {
+	if key == "" {
+		return nil, false, nil
 	}
+	var existingOperationID string
+	var existingFingerprint []byte
+	var createdAt time.Time
 
-	_, err = t.tx.Exec(ctx, `
-	UPDATE waystone.servers
-	SET desired_state = $1
-	WHERE server_id = $2
-`, desiredState, in.ServerID)
-
+	err = t.tx.QueryRow(ctx, `
+        SELECT operation_id::text, request_sha256, created_at
+        FROM waystone.idempotency_keys
+        WHERE tenant_id = $1
+          AND actor_type = $2
+          AND actor_id = $3
+          AND key = $4
+        FOR UPDATE
+    `,
+		t.TenantID(),
+		t.Actor().Type,
+		t.Actor().ID,
+		key,
+	).Scan(
+		&existingOperationID,
+		&existingFingerprint,
+		&createdAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
 	if err != nil {
-		return Operation{}, false, fmt.Errorf(
-			"update server desired state: %w", err,
-		)
+		return nil, false, fmt.Errorf("look up idempotency key: %w", err)
 	}
 
-	// Step 6: store the key next to the new operation.
-	if in.IdempotencyKey != "" {
-		if reuseExpiredKey {
-			// Point the expired key at the new operation and start its
-			// lifetime over.
-			_, err = t.tx.Exec(ctx, `
+	existingOp, err := t.GetOperation(ctx, existingOperationID)
+	if err != nil {
+		return nil, false, fmt.Errorf("get idempotent operation: %w", err)
+	}
+
+	// A key whose operation is still pending, running or unresolved
+	// never expires. Otherwise the same request could run twice.
+	finished := existingOp.State == StateSucceeded ||
+		existingOp.State == StateFailed ||
+		(existingOp.State == StateUncertain &&
+			existingOp.Resolution != nil)
+
+	expired := !t.Now().Before(createdAt.Add(KeyLifetime))
+
+	if expired && finished {
+		return nil, true, nil
+	}
+	// A live key must belong to exactly the same request.
+	if !bytes.Equal(existingFingerprint, fingerprint[:]) {
+		return nil, false, ErrIdempotencyKeyReused
+	}
+	// It's a retry, so return the original instead of a new one.
+	return &existingOp, false, nil
+}
+
+// storeKey is step 6 of CreateOperation: the key row for the new
+// operation opID, inserted, or updated when lookupKey allowed reuse.
+// Nothing to do without a key.
+func (t *Tx) storeKey(ctx context.Context, key string, fingerprint [32]byte, opID string, reuse bool) error {
+	if key == "" {
+		return nil
+	}
+	var err error
+	if reuse {
+		// Point the expired key at the new operation and start its
+		// lifetime over.
+		_, err = t.tx.Exec(ctx, `
 			UPDATE waystone.idempotency_keys
 			SET request_sha256 = $1,
 			    operation_id = $2,
@@ -411,16 +486,16 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 			  AND actor_id = $6
 			  AND key = $7
 		`,
-				in.RequestSHA256[:],
-				op.ID,
-				t.Now(),
-				t.TenantID(),
-				t.Actor().Type,
-				t.Actor().ID,
-				in.IdempotencyKey,
-			)
-		} else {
-			_, err = t.tx.Exec(ctx, `
+			fingerprint[:],
+			opID,
+			t.Now(),
+			t.TenantID(),
+			t.Actor().Type,
+			t.Actor().ID,
+			key,
+		)
+	} else {
+		_, err = t.tx.Exec(ctx, `
 			INSERT INTO waystone.idempotency_keys (
 				tenant_id,
 				actor_type,
@@ -432,33 +507,31 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`,
-				t.TenantID(),
-				t.Actor().Type,
-				t.Actor().ID,
-				in.IdempotencyKey,
-				in.RequestSHA256[:],
-				op.ID,
-				t.Now(),
-			)
-		}
-
-		if err != nil {
-			// Two requests with the same new key for different servers
-			// don't block each other at the server lock. The second
-			// insert waits for the first transaction and then fails here.
-			var pgErr *pgconn.PgError
-
-			if errors.As(err, &pgErr) &&
-				pgErr.Code == "23505" &&
-				pgErr.ConstraintName == "idempotency_keys_pkey" {
-				return Operation{}, false, ErrIdempotencyKeyReused
-			}
-
-			return Operation{}, false, fmt.Errorf("save idempotency key: %w", err)
-		}
+			t.TenantID(),
+			t.Actor().Type,
+			t.Actor().ID,
+			key,
+			fingerprint[:],
+			opID,
+			t.Now(),
+		)
 	}
 
-	return op, false, nil
+	if err != nil {
+		// Two requests with the same new key for different servers
+		// don't block each other at the server lock. The second
+		// insert waits for the first transaction and then fails here.
+		var pgErr *pgconn.PgError
+
+		if errors.As(err, &pgErr) &&
+			pgErr.Code == "23505" &&
+			pgErr.ConstraintName == "idempotency_keys_pkey" {
+			return ErrIdempotencyKeyReused
+		}
+
+		return fmt.Errorf("save idempotency key: %w", err)
+	}
+	return nil
 }
 
 // GetOperation returns one operation from the actor's tenant. A malformed

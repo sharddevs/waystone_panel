@@ -46,17 +46,19 @@ func golden(t *testing.T, name string, v any) {
 
 // goldenServers covers every field and the omitempty cases: a ready
 // server with a version, an unreachable node with stale states
-// (last_reported) and every action blocked with its reason, and a server
+// (last_reported) and every action blocked with its reason, a server
 // never observed at all (null times, no version).
 func goldenServers() []Server {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	at := func(d time.Duration) *time.Time { t := now.Add(-d); return &t }
 	version := "26.3"
-	onlyStartStop := func(a store.Action) bool { return a != store.ActionRestart }
+	port, heap := uint32(25565), uint32(4096)
+	onlyStartStop := func(a store.Action) bool { return a == store.ActionStart || a == store.ActionStop }
 	return []Server{
 		ServerOf(store.Server{
 			ID: "0199e1a0-0000-7000-8000-000000000a01", NodeID: "0199e1a0-0000-7000-8000-0000000000a1",
 			Name: "Survival World", Profile: "minecraft-java", ProfileVersion: &version, Runtime: "systemd", DesiredState: "running",
+			Port: &port, HeapMiB: &heap, Installed: true, EulaAccepted: true,
 			NodeName: "homelab-1", NodeLastSeenAt: at(5 * time.Second),
 			ProcessState: "running", ProcessSince: at(12 * time.Minute), ProcessObservedAt: at(8 * time.Second),
 			Readiness: "ready", ReadinessSince: at(11 * time.Minute), ReadinessObservedAt: at(8 * time.Second),
@@ -64,6 +66,7 @@ func goldenServers() []Server {
 		ServerOf(store.Server{
 			ID: "0199e1a0-0000-7000-8000-000000000a02", NodeID: "0199e1a0-0000-7000-8000-0000000000a2",
 			Name: "Modded", Profile: "minecraft-java", Runtime: "systemd", DesiredState: "running",
+			Installed: true, EulaAccepted: true,
 			NodeName: "pi-node", NodeLastSeenAt: at(4 * time.Minute),
 			ProcessState: "running", ProcessSince: at(time.Hour), ProcessObservedAt: at(4 * time.Minute),
 			Readiness: "not_ready", ReadinessSince: at(time.Hour), ReadinessObservedAt: at(4 * time.Minute),
@@ -75,6 +78,29 @@ func goldenServers() []Server {
 			NodeName: "homelab-1", NodeLastSeenAt: at(5 * time.Second),
 			ProcessState: "unknown", Readiness: "unknown", Blocking: store.StatePending,
 		}, all, now),
+	}
+}
+
+// goldenCreated is the answer to a create (service.CreatedServer): a
+// server just made, not installed and without the EULA, and its first
+// install operation, claimed and fetching.
+func goldenCreated() map[string]any {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *time.Time { t := now.Add(-d); return &t }
+	version := "26.3"
+	port, heap := uint32(25566), uint32(2048)
+	trevor := store.Actor{Type: store.ActorUser, ID: "0199e1a0-0000-7000-8000-00000000c001", Name: "Trevor"}
+	return map[string]any{
+		"server": ServerOf(store.Server{
+			ID: "0199e1a0-0000-7000-8000-000000000a04", NodeID: "0199e1a0-0000-7000-8000-0000000000a1",
+			Name: "New", Profile: "minecraft-java", ProfileVersion: &version, Runtime: "systemd", DesiredState: "stopped",
+			Port: &port, HeapMiB: &heap,
+			NodeName: "homelab-1", NodeLastSeenAt: at(5 * time.Second),
+			ProcessState: "stopped", ProcessObservedAt: at(8 * time.Second), Readiness: "not_ready", ReadinessObservedAt: at(8 * time.Second),
+		}, all, now),
+		"operation": OperationOf(store.Operation{ID: "0199e1a0-0000-7000-8000-00000000d004", ResourceID: "0199e1a0-0000-7000-8000-000000000a04",
+			NodeID: "0199e1a0-0000-7000-8000-0000000000a1", Action: store.ActionInstall, State: store.StateRunning, Phase: "fetching",
+			Actor: trevor, RequestedAt: now.Add(-time.Minute), StartedAt: at(59 * time.Second)}),
 	}
 }
 
@@ -142,6 +168,7 @@ func TestGolden(t *testing.T) {
 	ops := goldenOperations()
 	golden(t, "operation.json", ops[1])
 	golden(t, "operations.json", map[string]any{"operations": ops})
+	golden(t, "created.json", goldenCreated())
 	nodes := goldenNodes()
 	golden(t, "node.json", nodes[1])
 	golden(t, "nodes.json", map[string]any{"nodes": nodes})

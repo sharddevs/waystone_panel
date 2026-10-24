@@ -263,6 +263,12 @@ func TestErrorFor(t *testing.T) {
 		{"node unreachable", wrap(store.ErrNodeUnreachable), CodeNodeUnreachable, ""},
 		{"node revoked", wrap(store.ErrNodeRevoked), CodeNodeRevoked, ""},
 		{"not an admin", wrap(store.ErrNotAdmin), CodeForbidden, ""},
+		{"port taken", wrap(store.ErrPortTaken), CodePortTaken, ""},
+		{"server running", wrap(store.ErrServerRunning), CodeServerRunning, ""},
+		{"not installed", wrap(store.ErrNotInstalled), CodeNotInstalled, ""},
+		{"eula not accepted", wrap(store.ErrEulaNotAccepted), CodeEulaNotAccepted, ""},
+		{"already accepted", wrap(store.ErrAlreadyAccepted), CodeAlreadyAccepted, ""},
+		{"node full", wrap(store.ErrTooManyServers), CodeNodeFull, ""},
 		{"invalid actor is our bug", fmt.Errorf("%w: name", store.ErrInvalidActor), CodeInternal, ""},
 		{"database down", errors.New("connection refused"), CodeInternal, ""},
 		{"context", context.DeadlineExceeded, CodeInternal, ""},
@@ -328,8 +334,9 @@ func TestAuthorize(t *testing.T) {
 	}
 }
 
-// Routes is exactly the stage 4 route table plus the Nodes API (6b), so
-// both sockets mount the same thirteen routes.
+// Routes is exactly the stage 4 route table plus the Nodes API (6b) and
+// create, install and the EULA (6c), so both sockets mount the same
+// sixteen routes.
 func TestRoutes(t *testing.T) {
 	var got []string
 	for _, rt := range New(Config{Log: discardLogger()}).Routes() {
@@ -340,10 +347,13 @@ func TestRoutes(t *testing.T) {
 	}
 	want := []string{
 		"GET /api/v1/servers",
+		"POST /api/v1/servers",
 		"GET /api/v1/servers/{id}",
 		"POST /api/v1/servers/{id}/start",
 		"POST /api/v1/servers/{id}/stop",
 		"POST /api/v1/servers/{id}/restart",
+		"POST /api/v1/servers/{id}/install",
+		"POST /api/v1/servers/{id}/accept-eula",
 		"GET /api/v1/operations",
 		"GET /api/v1/operations/{id}",
 		"POST /api/v1/operations/{id}/resolve",

@@ -104,9 +104,9 @@ func TestServerNodeProfileRuntime(t *testing.T) {
 	if v := e.getServer(t, serverA1).Profile.Version; v == nil || *v != "26.3" {
 		t.Errorf("version = %v, want 26.3", v)
 	}
-	mustExec(t, e.owner, `UPDATE waystone.servers SET config = '{"version": ""}' WHERE server_id = $1`, serverA1)
-	if v := e.getServer(t, serverA1).Profile.Version; v != nil {
-		t.Errorf("empty version = %q, want null", *v)
+	// 00009 refuses an empty version, so null is the only empty answer.
+	if _, err := e.owner.Exec(context.Background(), `UPDATE waystone.servers SET config = '{"version": ""}' WHERE server_id = $1`, serverA1); err == nil {
+		t.Error("an empty version was stored")
 	}
 
 	// Reachability, at the 45 s boundary of the controller's clock.
@@ -230,10 +230,14 @@ func TestServerActions(t *testing.T) {
 	check := func(name, wantReason string) {
 		t.Helper()
 		acts := e.getServer(t, serverA1).Actions
-		if len(acts) != 3 || acts[0].Action != "start" || acts[1].Action != "stop" || acts[2].Action != "restart" {
+		if len(acts) != 5 || acts[0].Action != "start" || acts[1].Action != "stop" || acts[2].Action != "restart" ||
+			acts[3].Action != "install" || acts[4].Action != "accept_eula" {
 			t.Fatalf("%s: actions = %+v", name, acts)
 		}
-		for _, a := range acts {
+		// install and accept_eula (6c) have their own state rules; this
+		// test is about the operation and node reasons start/stop/restart
+		// share.
+		for _, a := range acts[:3] {
 			if a.Allowed != (wantReason == "") || a.Reason != wantReason {
 				t.Errorf("%s: %+v, want reason %q", name, a, wantReason)
 			}

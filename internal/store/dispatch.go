@@ -132,9 +132,13 @@ func (t *Tx) ClaimNext(ctx context.Context, epoch int64) (op ClaimedOperation, o
 		}
 
 		var phase *string
-		if action == ActionRestart {
+		switch action {
+		case ActionRestart:
 			stopping := "stopping"
 			phase = &stopping
+		case ActionInstall:
+			provisioning := "provisioning"
+			phase = &provisioning
 		}
 		tag, err := t.tx.Exec(ctx, `
 			UPDATE waystone.operations
@@ -224,6 +228,42 @@ func (t *Tx) RestartStarting(ctx context.Context, epoch int64, operationID strin
 		  AND state = 'running' AND claimed_epoch = $3
 		  AND action = 'server.restart' AND phase = 'stopping'`,
 		operationID, t.actor.ID, epoch)
+	if err != nil {
+		return fmt.Errorf("store progress: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrNotClaimed
+	}
+	return nil
+}
+
+// InstallPhase records that an install this session claimed moved on to
+// phase: provisioning → fetching → configuring, one step at a time, never
+// back (6c). Anything else is ErrNotClaimed, or ErrSessionSuperseded
+// after a takeover; the database's guard holds the same rule.
+func (t *Tx) InstallPhase(ctx context.Context, epoch int64, operationID, phase string) error {
+	if err := ids.Check(operationID); err != nil {
+		return fmt.Errorf("%w: invalid operation ID: %v", ErrInvalidInput, err)
+	}
+	var from string
+	switch phase {
+	case "fetching":
+		from = "provisioning"
+	case "configuring":
+		from = "fetching"
+	default:
+		return fmt.Errorf("%w: invalid install phase", ErrInvalidInput)
+	}
+	if err := t.lockSession(ctx, epoch); err != nil {
+		return err
+	}
+	tag, err := t.tx.Exec(ctx, `
+		UPDATE waystone.operations
+		SET phase = $4
+		WHERE operation_id = $1 AND node_id = $2
+		  AND state = 'running' AND claimed_epoch = $3
+		  AND action = 'server.install' AND phase = $5`,
+		operationID, t.actor.ID, epoch, phase, from)
 	if err != nil {
 		return fmt.Errorf("store progress: %w", err)
 	}

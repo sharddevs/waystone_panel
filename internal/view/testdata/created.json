@@ -1,0 +1,76 @@
+{
+  "operation": {
+    "id": "0199e1a0-0000-7000-8000-00000000d004",
+    "server_id": "0199e1a0-0000-7000-8000-000000000a04",
+    "node_id": "0199e1a0-0000-7000-8000-0000000000a1",
+    "action": "server.install",
+    "state": "running",
+    "phase": "fetching",
+    "actor": {
+      "type": "user",
+      "id": "0199e1a0-0000-7000-8000-00000000c001",
+      "name": "Trevor"
+    },
+    "requested_at": "2026-10-16T11:59:00Z",
+    "started_at": "2026-10-16T11:59:01Z",
+    "finished_at": null,
+    "resolution": null
+  },
+  "server": {
+    "id": "0199e1a0-0000-7000-8000-000000000a04",
+    "name": "New",
+    "node": {
+      "id": "0199e1a0-0000-7000-8000-0000000000a1",
+      "name": "homelab-1",
+      "reachability": {
+        "state": "reachable",
+        "last_seen_at": "2026-10-16T11:59:55Z"
+      }
+    },
+    "profile": {
+      "id": "minecraft-java",
+      "version": "26.3"
+    },
+    "runtime": "systemd",
+    "desired_state": "stopped",
+    "process": {
+      "state": "stopped",
+      "since": null,
+      "observed_at": "2026-10-16T11:59:52Z"
+    },
+    "readiness": {
+      "state": "not_ready",
+      "since": null,
+      "observed_at": "2026-10-16T11:59:52Z"
+    },
+    "port": 25566,
+    "heap_mib": 2048,
+    "installed": false,
+    "eula_accepted": false,
+    "actions": [
+      {
+        "action": "start",
+        "allowed": false,
+        "reason": "not_installed"
+      },
+      {
+        "action": "stop",
+        "allowed": true
+      },
+      {
+        "action": "restart",
+        "allowed": false,
+        "reason": "not_installed"
+      },
+      {
+        "action": "install",
+        "allowed": true
+      },
+      {
+        "action": "accept_eula",
+        "allowed": false,
+        "reason": "not_installed"
+      }
+    ]
+  }
+}
