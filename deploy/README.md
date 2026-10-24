@@ -66,6 +66,52 @@ HSTS starts at 300 seconds so a mistake is cheap while you validate the
 setup. Once HTTPS works, raise `WAYSTONE_HSTS_MAX_AGE` (at most two
 years). Waystone never sends `includeSubDomains` or `preload`.
 
+### Before the panel faces the internet
+
+The steps above are the whole setup; these are the checks that make it
+safe to forward ports to it.
+
+1. The certificate is publicly trusted (Caddy gets one when ports 80 and
+   443 reach it), and the Caddyfile has a site block for your one host
+   only. `WAYSTONE_PUBLIC_URL` names exactly that host.
+2. Put `WAYSTONE_HSTS_MAX_AGE=31536000` (one year) in
+   `/etc/waystone/controller.env` and restart the controller. Values in
+   `controller.env` win over the unit's 300-second default.
+3. Forward only 80 and 443. SSH, PostgreSQL and the game servers' ports
+   don't need to be reachable from the internet for the panel to work.
+4. No CDN or tunnel in front of Caddy (see above): with one, every visitor
+   shares one sign-in rate limit and the audit log records the CDN's
+   address instead of theirs.
+5. Create the first account (next section) with a long random password.
+
+From outside your network, `curl -sI https://<host>/healthz` should show a
+public issuer, `Strict-Transport-Security: max-age=31536000` and the
+Content-Security-Policy, and `http://<host>/` should redirect to https.
+
+## Accounts
+
+There is no sign-up page: accounts are made on the server, by someone who
+can connect to PostgreSQL as the database owner (`waystone_owner`), the
+same way `controller migrate` runs. Every command asks for the password
+twice, without echo; a password is never taken from the command line or
+the environment.
+
+```
+DSN="host=/var/run/postgresql dbname=waystone user=waystone_owner"
+waystone-controller user bootstrap -db "$DSN" -name "Your Name" you     # the first administrator, once
+waystone-controller user create -db "$DSN" -role admin -name "Sam" sam  # later accounts
+waystone-controller user set-password -db "$DSN" sam
+waystone-controller user disable -db "$DSN" sam                         # ends their sessions too
+```
+
+`bootstrap` works only while there are no accounts at all. In v0.1 every
+account is an administrator of the one organization.
+
+Signed-in sessions last at most 7 days, and end after 12 hours without
+use. After 5 wrong passwords for one username, or 20 from one address,
+within 15 minutes, sign-in answers "Too many attempts" until the oldest
+failure is 15 minutes old.
+
 Don't add `trusted_proxies` to the Caddyfile, and don't put another proxy
 or CDN in front of Caddy: v0.1 supports exactly one proxy, facing browsers
 directly.

@@ -289,10 +289,12 @@ describe('server page (wireframes §3)', () => {
     }
   })
 
-  it('an action refused with 401 goes to login, even while reads still work', async () => {
-    app(serverPath(survival), (c) => (c.method === 'POST' ? webError('unauthenticated', 401) : undefined))
+  it('an action refused with 401 goes to login, even while reads still work, and reloads nothing', async () => {
+    const { calls } = app(serverPath(survival), (c) => (c.method === 'POST' ? webError('unauthenticated', 401) : undefined))
     await userEvent.click(await screen.findByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(`/login?next=${encodeURIComponent(serverPath(survival))}`))
+    const post = calls.findIndex((c) => c.method === 'POST')
+    expect(calls.slice(post + 1).filter((c) => c.path.startsWith('/api/v1/servers/') || c.path.startsWith('/api/v1/operations'))).toHaveLength(0)
   })
 
   it('a session that ends goes to login, and comes back here afterwards', async () => {

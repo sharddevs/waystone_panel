@@ -57,14 +57,16 @@ export function ServerPage({ id }: { id: string }) {
         setAccepted(op)
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
+          // The session ended: off to the login page, nothing to reload
+          // (5d audit I12).
           expired()
           return
         }
         setActionError(e instanceof ApiError ? e : new ApiError(0, 'network', String(e)))
       } finally {
         setPending(null)
-        await Promise.all([reloadServer(), reloadHistory()])
       }
+      await Promise.all([reloadServer(), reloadHistory()])
     },
     [client, id, session.csrf_token, expired, reloadServer, reloadHistory],
   )
