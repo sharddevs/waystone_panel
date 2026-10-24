@@ -35,3 +35,34 @@ func TestRunRefuses(t *testing.T) {
 		t.Errorf("good flags: %v", err)
 	}
 }
+
+// Remote mode (6a): -controller-addr and -controller-pin, never mixed with
+// the local flags.
+func TestParseRemote(t *testing.T) {
+	pin := strings.Repeat("ab", 32)
+	good := []string{"-controller-addr", "10.0.20.80:7443", "-controller-pin", pin, "-node", testNode}
+	cfg, err := parse(good, 995, io.Discard)
+	if err != nil || !cfg.remote() || cfg.controllerAddr.String() != "10.0.20.80:7443" || cfg.controllerPin.String() != pin || cfg.tlsDir != defaultTLSDir {
+		t.Fatalf("parse = %+v, %v", cfg, err)
+	}
+	for name, args := range map[string][]string{
+		"mixed":     append(append([]string{}, good...), "-controller", "/tmp/a.sock"),
+		"mixed uid": append(append([]string{}, good...), "-controller-uid", "1000"),
+		"no pin":    {"-controller-addr", "10.0.20.80:7443", "-node", testNode},
+		"no addr":   {"-controller-pin", pin, "-node", testNode},
+		"host name": {"-controller-addr", "panel.example.com:7443", "-controller-pin", pin, "-node", testNode},
+		"no port":   {"-controller-addr", "10.0.20.80", "-controller-pin", pin, "-node", testNode},
+		"bad pin":   {"-controller-addr", "10.0.20.80:7443", "-controller-pin", strings.ToUpper(pin), "-node", testNode},
+		"no tls":    append(append([]string{}, good...), "-tls-dir", ""),
+		"nothing":   {"-node", testNode},
+	} {
+		if _, err := parse(args, 995, io.Discard); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// Remote mode without a key is a configuration error, not a new key.
+	args := append(append([]string{}, good...), "-tls-dir", t.TempDir())
+	if code := run(args, 995, io.Discard); code != 2 {
+		t.Errorf("no key: run = %d, want 2", code)
+	}
+}

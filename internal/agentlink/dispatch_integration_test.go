@@ -662,7 +662,7 @@ func TestStreamEndDropsSlots(t *testing.T) {
 // startLink runs another link (a "new controller") on the same database.
 func (e *env) startLink(t *testing.T, mod func(*Config)) (*Server, string) {
 	t.Helper()
-	cfg := Config{Store: e.store, NodeID: nodeA, AgentUID: uint32(os.Getuid()), Log: log.New(e.logs, "", 0)}
+	cfg := Config{Store: e.store, NodeID: nodeA, AgentUID: uint32(os.Getuid()), Version: "test", Log: log.New(e.logs, "", 0)}
 	if mod != nil {
 		mod(&cfg)
 	}

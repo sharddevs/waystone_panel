@@ -3,8 +3,12 @@
 // Command controller runs the Waystone controller. It serves the local
 // HTTP API on a Unix socket, the browser-facing side (behind the proxy) on
 // a second one and, when configured, the agent link on a third. It never
-// opens a TCP port. "controller migrate -db <dsn>" applies the database
-// migrations, and "controller user ..." manages browser accounts.
+// opens a TCP port itself: the one TCP socket it may serve, the agent
+// listener for other machines' agents (stage 6a), systemd opens and hands
+// over, and it speaks only gRPC with mutual TLS. "controller migrate -db
+// <dsn>" applies the database migrations, "controller user ..." manages
+// browser accounts, and "controller agent-pin" prints the agent link's
+// key pin.
 package main
 
 import (
@@ -25,6 +29,7 @@ import (
 	"time"
 
 	"github.com/sharddevs/waystone_panel/internal/agentlink"
+	"github.com/sharddevs/waystone_panel/internal/agenttls"
 	"github.com/sharddevs/waystone_panel/internal/api"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/sdlisten"
@@ -50,7 +55,14 @@ const (
 	apiSocketName   = "waystone-controller-api"
 	agentSocketName = "waystone-controller-agent"
 	webSocketName   = "waystone-controller-web"
+	// The agent listener for other machines (6a, D3): TCP, gRPC with
+	// mutual TLS only.
+	agentTCPSocketName = "waystone-controller-agent-tcp"
 )
+
+// defaultAgentTLSDir holds the controller's agent link key, in its
+// StateDirectory.
+const defaultAgentTLSDir = "/var/lib/waystone-controller/agent-tls"
 
 // adminGroup: an agent uid in this group would hold admin rights too
 // (decision E), so the controller refuses it.
@@ -66,6 +78,9 @@ func main() {
 	// exits, like migrate.
 	if len(os.Args) > 1 && os.Args[1] == "user" {
 		os.Exit(runUser(os.Args[2:], os.Stdout, os.Stderr, realUserDeps()))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "agent-pin" {
+		os.Exit(runAgentPin(os.Args[2:], os.Getuid(), os.Stdout, os.Stderr))
 	}
 	os.Exit(run(os.Args[1:], os.Stderr))
 }
@@ -89,13 +104,13 @@ func newServer(handler http.Handler) *http.Server {
 	}
 }
 
-// sockets are the controller's listeners. agent may be nil.
+// sockets are the controller's listeners. agent and agentTCP may be nil.
 type sockets struct {
-	api, web, agent net.Listener
+	api, web, agent, agentTCP net.Listener
 }
 
 func (s sockets) close() {
-	for _, l := range []net.Listener{s.api, s.web, s.agent} {
+	for _, l := range []net.Listener{s.api, s.web, s.agent, s.agentTCP} {
 		if l != nil {
 			l.Close()
 		}
@@ -110,7 +125,7 @@ func (s sockets) close() {
 // listenAgentDev for -agent-socket if it's set (localnode builds only).
 // Otherwise systemd must have passed the sockets (socket activation),
 // named apiSocketName and webSocketName and, optionally, agentSocketName
-// (D2). Any other socket is refused. There is never a fallback that opens
+// (D2) and the TCP agentTCPSocketName (6a). Any other socket is refused. There is never a fallback that opens
 // a socket or port of its own.
 func listeners(apiSocket, webSocket, agentSocket string, pid int, getenv func(string) string) (sockets, error) {
 	var s sockets
@@ -139,20 +154,21 @@ func listeners(apiSocket, webSocket, agentSocket string, pid int, getenv func(st
 		return s, errors.New("-agent-socket is dev mode and needs -api-socket")
 	}
 
-	fds, err := sdlisten.Listeners(pid, getenv)
+	fds, err := sdlisten.Listeners(pid, getenv, agentTCPSocketName)
 	if err != nil {
 		return s, err
 	}
-	s = sockets{api: fds[apiSocketName], web: fds[webSocketName], agent: fds[agentSocketName]}
+	s = sockets{api: fds[apiSocketName], web: fds[webSocketName], agent: fds[agentSocketName], agentTCP: fds[agentTCPSocketName]}
 	delete(fds, apiSocketName)
 	delete(fds, webSocketName)
 	delete(fds, agentSocketName)
+	delete(fds, agentTCPSocketName)
 	if s.api == nil || s.web == nil || len(fds) != 0 {
 		s.close()
 		for _, l := range fds {
 			l.Close()
 		}
-		return sockets{}, fmt.Errorf("systemd must pass %s and %s, at most %s, and nothing else", apiSocketName, webSocketName, agentSocketName)
+		return sockets{}, fmt.Errorf("systemd must pass %s and %s, at most %s and %s, and nothing else", apiSocketName, webSocketName, agentSocketName, agentTCPSocketName)
 	}
 	return s, nil
 }
@@ -247,6 +263,7 @@ func run(args []string, stderr io.Writer) int {
 	proxyUID := flags.Int("proxy-uid", -1, "The only uid web.sock accepts: the reverse proxy's (required)")
 	hstsMaxAge := flags.Int("hsts-max-age", web.DefaultHSTSMaxAge, "HSTS max-age in seconds")
 	devUIDir := flags.String("dev-ui-dir", "", "Development: serve the web UI from this directory (devweb builds)")
+	agentTLSDir := flags.String("agent-tls-dir", defaultAgentTLSDir, "The agent link's key, for the TCP agent listener")
 
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: controller -public-url <url> -proxy-uid <uid> [-hsts-max-age <s>] [-db <dsn>] [-api-socket <path> -web-socket <path>] [-agent-socket <path>] [-agent-uid <uid> -agent-node <uuid>] [-dev-ui-dir <dir>]")
@@ -316,12 +333,23 @@ func run(args []string, stderr io.Writer) int {
 	}
 
 	var link *agentlink.Server
-	if agentListener != nil {
-		link, err = agentlink.New(agentlink.Config{
-			Store:    db,
-			NodeID:   *agentNode,
-			AgentUID: uint32(*agentUID),
-		})
+	if agentListener != nil || socks.agentTCP != nil {
+		linkCfg := agentlink.Config{Store: db, Version: version}
+		if agentListener != nil {
+			linkCfg.NodeID, linkCfg.AgentUID = *agentNode, uint32(*agentUID)
+		}
+		if socks.agentTCP != nil {
+			// The key is made on first start and kept (D1). A new key
+			// would be a new pin, and every enrolled node would refuse it.
+			cert, err := agenttls.LoadOrCreate(*agentTLSDir)
+			if err != nil {
+				fmt.Fprintln(stderr, "agent link key:", err)
+				return 1
+			}
+			linkCfg.TLS = &cert
+			fmt.Fprintf(stderr, "Waystone agent link TCP listening on %s, controller pin %s\n", socks.agentTCP.Addr(), agenttls.PinOf(cert.Leaf))
+		}
+		link, err = agentlink.New(linkCfg)
 		if err != nil {
 			fmt.Fprintln(stderr, "agent link:", err)
 			return 1
@@ -391,11 +419,16 @@ func run(args []string, stderr io.Writer) int {
 		webErrors <- webServer.Serve()
 	}()
 
-	agentErrors := make(chan error, 1)
-	if link != nil {
+	agentErrors := make(chan error, 2)
+	if agentListener != nil {
 		fmt.Fprintf(stderr, "Waystone agent link listening on %s for uid %d, node %s\n", agentListener.Addr(), *agentUID, *agentNode)
 		go func() {
 			agentErrors <- link.Serve(agentListener)
+		}()
+	}
+	if socks.agentTCP != nil {
+		go func() {
+			agentErrors <- link.ServeTCP(socks.agentTCP)
 		}()
 	}
 

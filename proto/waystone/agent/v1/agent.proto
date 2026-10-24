@@ -24,6 +24,25 @@ service AgentLinkService {
   rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
 }
 
+// Enrollment (stage 6a): a new node redeems a one-time token. Only the
+// TCP listener serves it, and it is the one call a key that isn't pinned
+// yet may make. The key that gets pinned is the one this connection's
+// TLS handshake proved, never anything in the request.
+service EnrollService {
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+}
+
+message EnrollRequest {
+  // The token's secret, exactly 32 bytes.
+  bytes secret = 1;
+}
+
+message EnrollResponse {
+  string node_id = 1;
+  // The name the admin gave the node when making the token.
+  string name = 2;
+}
+
 // What the agent sends.
 message ConnectRequest {
   oneof msg {
@@ -46,7 +65,11 @@ message Hello {
   // Compared against the controller's configured node, never used as an
   // identity on its own.
   string node_id = 1;
+  // Must equal the controller's own version (v0.1: upgrade together).
   string agent_version = 2;
+  // What this agent can run, e.g. "systemd", "minecraft-java" (6a): at
+  // most 8, each 1 to 32 of a-z, 0-9 and '-'.
+  repeated string capabilities = 3;
 }
 
 message HelloReply {

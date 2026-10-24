@@ -134,3 +134,48 @@ func TestControllerServiceUnit(t *testing.T) {
 		}
 	}
 }
+
+// 6a, 6M4: the TCP agent listener is its own socket unit, added by a
+// drop-in, and the controller itself keeps no network of its own.
+func TestAgentTCPUnits(t *testing.T) {
+	s := readUnit(t, "waystone-controller-agent-tcp.socket")
+	for k, v := range map[string]string{
+		"Socket.FileDescriptorName": agentTCPSocketName,
+		"Socket.Service":            "waystone-controller.service",
+		"Socket.Accept":             "no",
+		"Install.WantedBy":          "sockets.target",
+	} {
+		if s[k] != v {
+			t.Errorf("tcp socket: %s = %q, want %q", k, s[k], v)
+		}
+	}
+	if addr := s["Socket.ListenStream"]; !strings.Contains(addr, ":") || strings.HasPrefix(addr, "0.0.0.0") || strings.HasPrefix(addr, "[::]") || strings.HasPrefix(addr, "/") {
+		t.Errorf("tcp socket: ListenStream = %q, want one LAN address and port", addr)
+	}
+
+	d := readUnit(t, "waystone-controller.service.d/agent-tcp.conf")
+	for k, v := range map[string]string{
+		"Service.Sockets": "waystone-controller-agent-tcp.socket",
+		"Unit.Requires":   "waystone-controller-agent-tcp.socket",
+		"Unit.After":      "waystone-controller-agent-tcp.socket",
+	} {
+		if d[k] != v {
+			t.Errorf("drop-in: %s = %q, want %q", k, d[k], v)
+		}
+	}
+	if len(d) != 3 {
+		t.Errorf("drop-in sets %d keys, want only these 3: %v", len(d), d)
+	}
+
+	u := readUnit(t, "waystone-controller.service")
+	for k, v := range map[string]string{
+		"Service.PrivateNetwork":          "yes",
+		"Service.RestrictAddressFamilies": "AF_UNIX",
+		"Service.StateDirectory":          "waystone-controller",
+		"Service.StateDirectoryMode":      "0700",
+	} {
+		if u[k] != v {
+			t.Errorf("controller: %s = %q, want %q", k, u[k], v)
+		}
+	}
+}

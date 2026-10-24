@@ -5,13 +5,19 @@
 // server on the agent socket, its peer-uid handshake, the session map, and
 // the handler that turns an agent's hello and reports into store calls.
 //
-// Who the agent is comes from the kernel (the handshake) and which node it
-// speaks for comes from the controller's own configuration (R3). Nothing
-// in a message can change either.
+// Since stage 6a it can also serve agents on other machines over TCP with
+// mutual TLS and pinned keys (notes/stage6-scope.md D1-D5), and lets a new
+// node enroll there.
+//
+// Who the agent is and which node it speaks for come from the transport:
+// on agent.sock the kernel proves the uid and the node is the controller's
+// own configuration (R3); over TCP the node is the one whose key the TLS
+// handshake proved. Nothing in a message can change either.
 package agentlink
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +32,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	agentv1 "github.com/sharddevs/waystone_panel/gen/waystone/agent/v1"
+	"github.com/sharddevs/waystone_panel/internal/agenttls"
 	"github.com/sharddevs/waystone_panel/internal/ids"
 	"github.com/sharddevs/waystone_panel/internal/peercred"
 	"github.com/sharddevs/waystone_panel/internal/store"
@@ -55,29 +62,45 @@ const (
 const (
 	MsgSessionReplaced = "session_replaced"
 	MsgShuttingDown    = "shutting_down"
+	// MsgVersionMismatch: the agent's version isn't the controller's
+	// (D4). The agent waits before trying again.
+	MsgVersionMismatch = "version_mismatch"
 )
 
 // Causes for cancelling a session's context.
 var (
 	errReplaced = errors.New(MsgSessionReplaced)
 	errShutdown = errors.New(MsgShuttingDown)
+	errRevoked  = errors.New(MsgNodeRevoked)
 )
 
-// Config is what the controller hands the link.
+// Config is what the controller hands the link. At least one of the two
+// transports must be set up: agent.sock (NodeID and AgentUID) or TCP
+// (TLS).
 type Config struct {
 	Store *store.Store
-	// NodeID is the node this controller's agent speaks for (-agent-node),
-	// the only source of the node actor (R3).
+	// NodeID is the node this controller's own agent speaks for on
+	// agent.sock (-agent-node), the only source of that node actor (R3).
+	// Empty means no agent.sock.
 	NodeID string
-	// AgentUID is the only uid the handshake accepts (-agent-uid).
+	// AgentUID is the only uid the agent.sock handshake accepts
+	// (-agent-uid).
 	AgentUID uint32
+	// TLS is the controller's key for the TCP listener (6a). nil means
+	// no TCP listener.
+	TLS *tls.Certificate
+	// Version is the controller's version. An agent must say hello with
+	// exactly this one (D4).
+	Version string
 
 	// For tests; zero values mean the real thing.
-	UIDOf          func(net.Conn) (uint32, error) // peercred.UID
-	Log            *log.Logger                    // log.Default()
-	Now            func() time.Time               // time.Now, for the churn window and log limits
-	HelloTimeout   time.Duration                  // HelloTimeout
-	ReportInterval time.Duration                  // ReportInterval; whole seconds
+	Nodes            NodeLookup                     // Store
+	UIDOf            func(net.Conn) (uint32, error) // peercred.UID
+	Log              *log.Logger                    // log.Default()
+	Now              func() time.Time               // time.Now, for the churn window and log limits
+	HelloTimeout     time.Duration                  // HelloTimeout
+	ReportInterval   time.Duration                  // ReportInterval; whole seconds
+	UnpinnedLifetime time.Duration                  // UnpinnedLifetime
 
 	// Crash-point hooks for tests (4c, F2 and S2). nil in production.
 	// TestBeforeClaim runs inside the claim transaction; an error rolls
@@ -88,11 +111,24 @@ type Config struct {
 	TestAfterClaim  func(store.ClaimedOperation) error
 }
 
+// NodeLookup finds a connection's node before any tenant is known
+// (*store.Store).
+type NodeLookup interface {
+	AgentNodeByPin(ctx context.Context, pin [32]byte) (store.AgentNode, error)
+	AgentNodeByID(ctx context.Context, nodeID string) (store.AgentNode, error)
+}
+
 // Server is the agent link: one gRPC server with one service.
 type Server struct {
 	agentv1.UnimplementedAgentLinkServiceServer
 
-	store          *store.Store
+	store *store.Store
+	nodes NodeLookup
+	// localNode is the configured agent.sock node, or "".
+	localNode string
+	version   string
+	// nodeID and actor are the node of one stream. They are set only on
+	// the copy forNode makes for that stream, never on the shared Server.
 	nodeID         string
 	actor          store.Actor
 	log            *log.Logger
@@ -100,7 +136,11 @@ type Server struct {
 	helloTimeout   time.Duration
 	reportInterval time.Duration
 
-	grpc *grpc.Server
+	grpc    *grpc.Server // agent.sock; nil without one
+	grpcTCP *grpc.Server // the TCP listener; nil without one
+	slots   *slots
+	// enrollPerIP is Enroll's per-address limit (D2, 6H7).
+	enrollPerIP *window
 	// base is cancelled by CancelSessions. Every stream watches it, so
 	// shutdown also ends streams that haven't said hello yet.
 	base       context.Context
@@ -113,32 +153,50 @@ type Server struct {
 	testAfterClaim  func(store.ClaimedOperation) error
 }
 
-// New builds the link. It refuses a node ID that isn't a canonical UUID
-// and a report interval that isn't whole seconds.
+// New builds the link. It refuses a node ID that isn't a canonical UUID,
+// a config with neither transport, no version, and a report interval
+// that isn't whole seconds.
 func New(cfg Config) (*Server, error) {
-	if err := ids.Check(cfg.NodeID); err != nil {
-		return nil, fmt.Errorf("agent node: %w", err)
+	if cfg.NodeID != "" {
+		if err := ids.Check(cfg.NodeID); err != nil {
+			return nil, fmt.Errorf("agent node: %w", err)
+		}
+	}
+	if cfg.NodeID == "" && cfg.TLS == nil {
+		return nil, errors.New("agent link: neither agent.sock nor TCP is set up")
 	}
 	if cfg.Store == nil {
 		return nil, errors.New("agent link: no store")
 	}
+	if cfg.Version == "" {
+		return nil, errors.New("agent link: no version")
+	}
 	s := &Server{
 		store:          cfg.Store,
-		nodeID:         cfg.NodeID,
-		actor:          store.Actor{Type: store.ActorNode, ID: cfg.NodeID, Name: "node " + cfg.NodeID},
+		nodes:          cfg.Nodes,
+		localNode:      cfg.NodeID,
+		version:        cfg.Version,
 		log:            cfg.Log,
 		now:            cfg.Now,
 		helloTimeout:   cfg.HelloTimeout,
 		reportInterval: cfg.ReportInterval,
 		sessions:       newSessions(),
 		churn:          newChurn(),
+		slots:          newSlots(MaxUnpinnedPerIP, MaxHandshaking, MaxEnrollOnly, MaxPinned),
+		enrollPerIP:    newWindow(enrollPerIP, enrollWindow),
 
 		testBeforeClaim: cfg.TestBeforeClaim,
 		testAfterClaim:  cfg.TestAfterClaim,
 	}
+	if cfg.UnpinnedLifetime > 0 {
+		s.slots.lifetime = cfg.UnpinnedLifetime
+	}
 	s.base, s.cancelBase = context.WithCancelCause(context.Background())
 	if s.log == nil {
 		s.log = log.Default()
+	}
+	if s.nodes == nil {
+		s.nodes = cfg.Store
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -167,23 +225,61 @@ func New(cfg Config) (*Server, error) {
 			}
 		},
 	}
-	s.grpc = grpc.NewServer(
-		grpc.Creds(creds),
-		grpc.ConnectionTimeout(HandshakeTimeout),
-		grpc.MaxRecvMsgSize(MaxMessageBytes),
-		grpc.MaxSendMsgSize(MaxMessageBytes),
-		grpc.KeepaliveParams(keepalive.ServerParameters{Time: keepaliveTime, Timeout: keepaliveTimeout}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: keepaliveMinTime, PermitWithoutStream: true}),
-	)
-	agentv1.RegisterAgentLinkServiceServer(s.grpc, s)
+	// Both servers share every limit and the authorizer; only the
+	// handshake differs. Only TCP serves Enroll.
+	opts := func(c grpc.ServerOption) []grpc.ServerOption {
+		return []grpc.ServerOption{
+			c,
+			grpc.ConnectionTimeout(HandshakeTimeout),
+			grpc.MaxRecvMsgSize(MaxMessageBytes),
+			grpc.MaxSendMsgSize(MaxMessageBytes),
+			grpc.KeepaliveParams(keepalive.ServerParameters{Time: keepaliveTime, Timeout: keepaliveTimeout}),
+			grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: keepaliveMinTime, PermitWithoutStream: true}),
+			grpc.UnaryInterceptor(s.unaryAuthz),
+			grpc.StreamInterceptor(s.streamAuthz),
+		}
+	}
+	if cfg.NodeID != "" {
+		s.grpc = grpc.NewServer(opts(grpc.Creds(creds))...)
+		agentv1.RegisterAgentLinkServiceServer(s.grpc, s)
+	}
+	if cfg.TLS != nil {
+		lookup := func(ctx context.Context, pin agenttls.Pin) (store.AgentNode, error) {
+			return s.nodes.AgentNodeByPin(ctx, pin)
+		}
+		s.grpcTCP = grpc.NewServer(opts(grpc.Creds(newTLSCreds(*cfg.TLS, lookup, s.logf)))...)
+		agentv1.RegisterAgentLinkServiceServer(s.grpcTCP, s)
+		agentv1.RegisterEnrollServiceServer(s.grpcTCP, &enrollServer{s: s})
+	}
 	return s, nil
 }
 
 func (s *Server) logf(format string, args ...any) { s.log.Printf(format, args...) }
 
-// Serve accepts agents on l, at most MaxConns at a time, until Stop.
+// Serve accepts the local agent on agent.sock l, at most MaxConns at a
+// time, until Stop.
 func (s *Server) Serve(l net.Listener) error {
+	if s.grpc == nil {
+		return errors.New("agent link: agent.sock is not set up")
+	}
 	return s.grpc.Serve(newLimitListener(l, MaxConns))
+}
+
+// ServeTCP accepts agents on the TCP listener l, with the connection
+// pools' limits (6H1), until Stop.
+func (s *Server) ServeTCP(l net.Listener) error {
+	if s.grpcTCP == nil {
+		return errors.New("agent link: TCP is not set up")
+	}
+	return s.grpcTCP.Serve(&slotListener{Listener: l, slots: s.slots})
+}
+
+// Revoke ends nodeID's live session at once, if it has one (D5). The
+// agent sees node_revoked. Call it after the revocation commits: any
+// later call is refused by the authorizer, and any later write by the
+// database (the node has no membership any more).
+func (s *Server) Revoke(nodeID string) {
+	s.sessions.end(nodeID, errRevoked)
 }
 
 // Kick tells node's live session, if any, that it may have a new pending
@@ -205,19 +301,39 @@ func (s *Server) CancelSessions() {
 // off (R10 steps 2 and 3). Call CancelSessions first: these streams never
 // end on their own. It reports whether it had to cut them off.
 func (s *Server) Stop(ctx context.Context) error {
+	var servers []*grpc.Server
+	for _, g := range []*grpc.Server{s.grpc, s.grpcTCP} {
+		if g != nil {
+			servers = append(servers, g)
+		}
+	}
 	done := make(chan struct{})
 	go func() {
-		s.grpc.GracefulStop()
+		var wg sync.WaitGroup
+		for _, g := range servers {
+			wg.Go(g.GracefulStop)
+		}
+		wg.Wait()
 		close(done)
 	}()
 	select {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		s.grpc.Stop()
+		for _, g := range servers {
+			g.Stop()
+		}
 		<-done
 		return ctx.Err()
 	}
+}
+
+// forNode is the Server as one stream's node sees it.
+func (s *Server) forNode(n store.AgentNode) *Server {
+	c := *s
+	c.nodeID = n.NodeID
+	c.actor = n.Actor()
+	return &c
 }
 
 // streamError is a status that ends the stream with a short reason.
@@ -226,9 +342,17 @@ func streamError(code codes.Code, reason string) error {
 }
 
 // Connect is one agent's stream: a Hello first, then Reports until the
-// agent leaves, the session is replaced, or something is wrong with what
-// it sent.
+// agent leaves, the session is replaced or revoked, or something is wrong
+// with what it sent. The authorizer has already found its node.
 func (s *Server) Connect(stream agentv1.AgentLinkService_ConnectServer) error {
+	n, ok := nodeFrom(stream.Context())
+	if !ok {
+		return errNotPermitted
+	}
+	return s.forNode(n).connect(stream)
+}
+
+func (s *Server) connect(stream agentv1.AgentLinkService_ConnectServer) error {
 	ctx, cancel := context.WithCancelCause(stream.Context())
 	defer cancel(nil)
 	stopWatching := context.AfterFunc(s.base, func() { cancel(errShutdown) })
@@ -282,6 +406,15 @@ func (s *Server) Connect(stream agentv1.AgentLinkService_ConnectServer) error {
 	if hello.GetNodeId() != s.nodeID {
 		return s.refuse(codes.FailedPrecondition, "node_mismatch")
 	}
+	// D4: v0.1 agents upgrade together with their controller. Only a
+	// proven node gets this far, so the version is no outsider's to see.
+	if hello.GetAgentVersion() != s.version {
+		s.logf("agent_link=refused node=%s reason=%s agent_version=%q", s.nodeID, MsgVersionMismatch, clip(hello.GetAgentVersion(), 64))
+		return streamError(codes.FailedPrecondition, MsgVersionMismatch)
+	}
+	if !store.ValidAgentInfo(hello.GetAgentVersion(), hello.GetCapabilities()) {
+		return s.refuse(codes.InvalidArgument, "invalid_hello")
+	}
 
 	var epoch int64
 	var serverIDs []string
@@ -289,10 +422,17 @@ func (s *Server) Connect(stream agentv1.AgentLinkService_ConnectServer) error {
 	err := s.store.InTenantTx(ctx, s.actor, func(ctx context.Context, tx *store.Tx) error {
 		var err error
 		epoch, serverIDs, ports, err = tx.NodeHello(ctx)
-		return err
+		if err != nil {
+			return err
+		}
+		return tx.SetAgentInfo(ctx, hello.GetAgentVersion(), hello.GetCapabilities())
 	})
 	if errors.Is(err, store.ErrTooManyServers) {
 		return s.refuse(codes.FailedPrecondition, "too_many_servers")
+	}
+	if errors.Is(err, store.ErrNoMembership) {
+		// Revoked between the authorizer's look and here.
+		return s.refuse(codes.PermissionDenied, MsgNodeRevoked)
 	}
 	if err != nil {
 		s.logf("agent_link=hello_failed node=%s error=%q", s.nodeID, err.Error())
@@ -413,6 +553,10 @@ func (s *Server) report(ctx context.Context, epoch int64, lastSeq *int64, wire *
 		s.logf("agent_session=superseded node=%s epoch=%d", s.nodeID, epoch)
 		return streamError(codes.Aborted, MsgSessionReplaced)
 	}
+	if errors.Is(err, store.ErrNoMembership) {
+		// Revoked: the node can't write any more (6M2).
+		return s.refuse(codes.PermissionDenied, MsgNodeRevoked)
+	}
 	if err != nil {
 		if ctx.Err() == nil {
 			s.logf("agent_link=report_failed node=%s epoch=%d error=%q", s.nodeID, epoch, err.Error())
@@ -448,6 +592,9 @@ func (s *Server) sessionEnded(sessCtx context.Context, epoch int64) error {
 		return streamError(codes.Aborted, MsgSessionReplaced)
 	case errShutdown:
 		return streamError(codes.Unavailable, MsgShuttingDown)
+	case errRevoked:
+		s.logf("agent_session=revoked node=%s epoch=%d", s.nodeID, epoch)
+		return streamError(codes.PermissionDenied, MsgNodeRevoked)
 	}
 	return status.FromContextError(sessCtx.Err()).Err()
 }

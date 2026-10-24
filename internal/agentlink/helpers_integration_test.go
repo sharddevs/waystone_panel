@@ -144,7 +144,7 @@ func setup(t *testing.T, mod func(*Config)) *env {
 	t.Helper()
 	owner, st := setupDB(t)
 	e := &env{owner: owner, store: st, logs: &syncBuffer{}}
-	cfg := Config{Store: st, NodeID: nodeA, AgentUID: uint32(os.Getuid()), Log: log.New(e.logs, "", 0)}
+	cfg := Config{Store: st, NodeID: nodeA, AgentUID: uint32(os.Getuid()), Version: "test", Log: log.New(e.logs, "", 0)}
 	if mod != nil {
 		mod(&cfg)
 	}

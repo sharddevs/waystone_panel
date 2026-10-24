@@ -100,3 +100,62 @@ func childListeners() {
 	}
 	os.Stdout.WriteString("RESULT wrong\n")
 }
+
+// A TCP socket is taken only under a name the caller allows as TCP, and a
+// name allowed as TCP must be one (stage 6a). Descriptor 3 is a Unix
+// socket, 4 a TCP one.
+func TestListenersTCP(t *testing.T) {
+	if os.Getenv("SDLISTEN_CHILD") == "tcp" {
+		getenv := func(k string) string {
+			if k == "LISTEN_PID" {
+				return strconv.Itoa(os.Getpid())
+			}
+			return os.Getenv(k)
+		}
+		var allow []string
+		if a := os.Getenv("SDLISTEN_ALLOW"); a != "" {
+			allow = strings.Split(a, ",")
+		}
+		ls, err := Listeners(os.Getpid(), getenv, allow...)
+		if err != nil {
+			os.Stdout.WriteString("RESULT error " + err.Error() + "\n")
+			return
+		}
+		if _, ok := ls["tcp"].(*net.TCPListener); ok && len(ls) == 2 {
+			os.Stdout.WriteString("RESULT ok\n")
+			return
+		}
+		os.Stdout.WriteString("RESULT wrong\n")
+		return
+	}
+	u, err := net.Listen("unix", filepath.Join(t.TempDir(), "u.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	tl, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tl.Close()
+	uf, _ := u.(*net.UnixListener).File()
+	tf, _ := tl.(*net.TCPListener).File()
+	defer uf.Close()
+	defer tf.Close()
+	for allow, want := range map[string]string{
+		"tcp":      "ok",
+		"":         "error", // TCP not allowed
+		"unix,tcp": "error", // the Unix one named as TCP
+	} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestListenersTCP$")
+		cmd.Env = append(os.Environ(), "SDLISTEN_CHILD=tcp", "LISTEN_FDS=2", "LISTEN_FDNAMES=unix:tcp", "SDLISTEN_ALLOW="+allow)
+		cmd.ExtraFiles = []*os.File{uf, tf}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%q: child: %v\n%s", allow, err, out)
+		}
+		if !strings.Contains(string(out), "RESULT "+want) {
+			t.Errorf("allow %q: child said %q, want RESULT %s", allow, out, want)
+		}
+	}
+}

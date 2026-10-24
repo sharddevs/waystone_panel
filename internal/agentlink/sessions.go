@@ -59,6 +59,17 @@ func (s *sessions) remove(node string, epoch int64) {
 	}
 }
 
+// end cancels node's live session, whatever its epoch, with cause, and
+// forgets it. A node with no session is left alone.
+func (s *sessions) end(node string, cause error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur, ok := s.live[node]; ok {
+		cur.cancel(cause)
+		delete(s.live, node)
+	}
+}
+
 // epoch returns node's live epoch, or 0.
 func (s *sessions) epoch(node string) int64 {
 	s.mu.Lock()

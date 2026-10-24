@@ -5,11 +5,14 @@
 // helper for each server's STATUS and reports it. Since stage 4c it also
 // carries out the controller's start, stop and restart commands
 // (commands.go). Since stage 4d-2 each report also carries readiness, from
-// the profile's probe (readiness.go).
+// the profile's probe (readiness.go). Since stage 6a it can instead reach
+// a controller on another machine over TCP with mutual TLS and pinned keys
+// (enroll.go makes the key and the configuration).
 package agent
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +24,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -43,8 +47,19 @@ const (
 	maxReportInterval = time.Hour
 )
 
-// msgSessionReplaced must match the controller's status message.
-const msgSessionReplaced = "session_replaced"
+// The controller's status messages that mean "don't come back soon" (R6,
+// 6a): another agent holds this node's session, the node was revoked or
+// isn't one, or this agent's version is the wrong one. Each must match the
+// controller's.
+const (
+	msgSessionReplaced = "session_replaced"
+	msgNodeRevoked     = "node_revoked"
+	msgNotPermitted    = "not_permitted"
+	msgVersionMismatch = "version_mismatch"
+)
+
+// Capabilities is what this agent tells the controller it can run (D4).
+var Capabilities = []string{"systemd", "minecraft-java"}
 
 // Config is what cmd/waystone-agent hands the agent.
 type Config struct {
@@ -52,6 +67,12 @@ type Config struct {
 	ControllerSocket string
 	// ControllerUID is the only uid the agent will talk to (R2).
 	ControllerUID uint32
+	// ControllerAddr and TLS are the other way to the controller (6a): a
+	// TCP address, and agenttls.ClientConfig with this node's key and the
+	// controller's pin. Set both or neither, and not with
+	// ControllerSocket.
+	ControllerAddr string
+	TLS            *tls.Config
 	// NodeID is sent in the Hello, where the controller compares it with
 	// its own configuration.
 	NodeID  string
@@ -85,6 +106,7 @@ type Agent struct {
 	runner        Runner
 	prober        Prober
 	dial          func(ctx context.Context) (net.Conn, error)
+	creds         credentials.TransportCredentials
 	uidOf         func(net.Conn) (uint32, error)
 	log           *log.Logger
 	now           func() time.Time
@@ -111,7 +133,13 @@ func New(cfg Config) (*Agent, error) {
 	if cfg.Prober == nil {
 		return nil, errors.New("agent: no prober")
 	}
-	if cfg.Dial == nil && cfg.ControllerSocket == "" {
+	if (cfg.ControllerAddr == "") != (cfg.TLS == nil) {
+		return nil, errors.New("agent: a controller address goes with TLS, and TLS with an address")
+	}
+	if cfg.ControllerAddr != "" && cfg.ControllerSocket != "" {
+		return nil, errors.New("agent: a controller socket or a controller address, not both")
+	}
+	if cfg.Dial == nil && cfg.ControllerSocket == "" && cfg.ControllerAddr == "" {
 		return nil, errors.New("agent: no controller socket")
 	}
 	a := &Agent{
@@ -132,15 +160,23 @@ func New(cfg Config) (*Agent, error) {
 		commandCallTimeout: cfg.CommandCallTimeout,
 		probeTimeout:       cfg.ProbeTimeout,
 	}
+	network, address := "unix", cfg.ControllerSocket
+	if cfg.ControllerAddr != "" {
+		network, address = "tcp", cfg.ControllerAddr
+	}
 	if a.dial == nil {
-		path := cfg.ControllerSocket
 		a.dial = func(ctx context.Context) (net.Conn, error) {
 			var d net.Dialer
-			return d.DialContext(ctx, "unix", path)
+			return d.DialContext(ctx, network, address)
 		}
 	}
 	if a.uidOf == nil {
 		a.uidOf = peercred.UID
+	}
+	if cfg.TLS != nil {
+		a.creds = credentials.NewTLS(cfg.TLS)
+	} else {
+		a.creds = &clientCreds{controllerUID: a.controllerUID, uidOf: a.uidOf}
 	}
 	if a.log == nil {
 		a.log = log.Default()
@@ -182,7 +218,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		if healthy {
 			a.backoff.reset()
 		}
-		replaced := isReplaced(err)
+		replaced := isLongWait(err)
 		wait := a.backoff.next(replaced)
 		a.logf("agent=disconnected replaced=%t error=%q retry_in=%s", replaced, errText(err), wait.Round(time.Millisecond))
 		if err := a.sleep(ctx, wait); err != nil {
@@ -191,11 +227,22 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
-// isReplaced reports whether the controller ended the session because
-// another agent took over this node (R6).
-func isReplaced(err error) bool {
+// isLongWait reports whether the controller ended the session in a way
+// that retrying soon can't fix (R6): another agent took over this node,
+// the node was revoked or this key isn't a node's, or the versions
+// differ (D4). Those get the long backoff.
+func isLongWait(err error) bool {
 	st, ok := status.FromError(err)
-	return ok && st.Code() == codes.Aborted && st.Message() == msgSessionReplaced
+	if !ok {
+		return false
+	}
+	switch {
+	case st.Code() == codes.Aborted && st.Message() == msgSessionReplaced,
+		st.Code() == codes.PermissionDenied && (st.Message() == msgNodeRevoked || st.Message() == msgNotPermitted),
+		st.Code() == codes.FailedPrecondition && st.Message() == msgVersionMismatch:
+		return true
+	}
+	return false
 }
 
 // session is one connection: hello, then reports and commands until the
@@ -204,7 +251,7 @@ func isReplaced(err error) bool {
 func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 	cc, err := grpc.NewClient("passthrough:///waystone-controller",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return a.dial(ctx) }),
-		grpc.WithTransportCredentials(&clientCreds{controllerUID: a.controllerUID, uidOf: a.uidOf}),
+		grpc.WithTransportCredentials(a.creds),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMessageBytes), grpc.MaxCallSendMsgSize(maxMessageBytes)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: keepaliveTime, Timeout: keepaliveTimeout, PermitWithoutStream: true}),
 	)
@@ -222,6 +269,7 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 	err = stream.Send(&agentv1.ConnectRequest{Msg: &agentv1.ConnectRequest_Hello{Hello: &agentv1.Hello{
 		NodeId:       a.nodeID,
 		AgentVersion: a.version,
+		Capabilities: Capabilities,
 	}}})
 	if err != nil {
 		return false, recvStatus(stream, err)

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -63,12 +64,15 @@ func Listener(name string, pid int, getenv func(string) string) (net.Listener, e
 // maxNamed bounds how many named sockets Listeners takes over.
 const maxNamed = 8
 
-// Listeners returns every Unix socket systemd passed to this process, by
-// the names in LISTEN_FDNAMES (each socket unit's FileDescriptorName=).
-// It is for a service with more than one socket, like the controller's
-// API and agent sockets. Every name must be present, non-empty and
-// unique; anything off and nothing is returned (all descriptors closed).
-func Listeners(pid int, getenv func(string) string) (map[string]net.Listener, error) {
+// Listeners returns every socket systemd passed to this process, by the
+// names in LISTEN_FDNAMES (each socket unit's FileDescriptorName=). It is
+// for a service with more than one socket, like the controller's API and
+// agent sockets. Every name must be present, non-empty and unique; anything
+// off and nothing is returned (all descriptors closed).
+//
+// Each socket must be a Unix socket, except those named in tcp, which must
+// be TCP (the controller's agent listener, stage 6a).
+func Listeners(pid int, getenv func(string) string, tcp ...string) (map[string]net.Listener, error) {
 	listenPID, err := strconv.Atoi(getenv("LISTEN_PID"))
 	if err != nil {
 		return nil, fmt.Errorf("not socket-activated (LISTEN_PID: %w)", err)
@@ -110,7 +114,13 @@ func Listeners(pid int, getenv func(string) string) (map[string]net.Listener, er
 			closeAll()
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
-		if _, ok := l.(*net.UnixListener); !ok {
+		if slices.Contains(tcp, name) {
+			if _, ok := l.(*net.TCPListener); !ok {
+				l.Close()
+				closeAll()
+				return nil, errors.New(name + ": the socket systemd passed is not a TCP socket")
+			}
+		} else if _, ok := l.(*net.UnixListener); !ok {
 			l.Close()
 			closeAll()
 			return nil, errors.New(name + ": the socket systemd passed is not a Unix socket")

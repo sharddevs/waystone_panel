@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The agent listener for agents on other machines (stage 6a): gRPC with
+# mutual TLS and pinned keys only, never HTTP. Without this unit there is
+# no TCP listener at all.
+#
+# Bind it to the controller's LAN address, never 0.0.0.0 on a machine that
+# faces the internet, and don't forward its port on the router: only 80
+# and 443 face the internet (deploy/README.md). Edit ListenStream= with
+# "systemctl edit", then enable it together with the controller drop-in
+# waystone-controller.service.d/agent-tcp.conf.
+[Unit]
+Description=Waystone controller agent listener (TCP)
+
+[Socket]
+ListenStream=10.0.20.80:7443
+FileDescriptorName=waystone-controller-agent-tcp
+Service=waystone-controller.service
+FreeBind=yes
+NoDelay=yes
+Accept=no
+
+[Install]
+WantedBy=sockets.target

@@ -102,8 +102,9 @@ REVOKE ALL ON FUNCTION waystone.actor_has_role(uuid, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION waystone.actor_has_role(uuid, text) TO waystone_app;
 
 -- ------------------------------------------------------- node_enrollments
--- used_at and node_id are set by enroll_node only. A spent token without a
--- node is one whose key was already a node's (pin_taken).
+-- used_at, node_id and denials are set by enroll_node only. A spent token
+-- without a node is one whose key was already a node's (pin_taken).
+-- denials counts the refusals audited for this token (6a-H1).
 CREATE TABLE waystone.node_enrollments (
     tenant_id uuid NOT NULL REFERENCES waystone.tenants (tenant_id),
     enrollment_id uuid PRIMARY KEY,
@@ -116,6 +117,7 @@ CREATE TABLE waystone.node_enrollments (
     expires_at timestamptz NOT NULL DEFAULT now() + interval '1 hour',
     used_at timestamptz,
     node_id uuid,
+    denials integer NOT NULL DEFAULT 0 CHECK (denials BETWEEN 0 AND 5),
     CHECK (expires_at > created_at AND expires_at <= created_at + interval '1 hour'),
     CHECK (node_id IS NULL OR used_at IS NOT NULL)
 );
@@ -151,7 +153,8 @@ ALTER TABLE waystone.audit_events ADD CONSTRAINT audit_events_outcome_check
 -- search_path, every name qualified, EXECUTE for waystone_app alone.
 
 -- enroll_node redeems one token for the key that the TLS handshake proved
--- (6M1, 6M3). p_request_id and p_client_ip only label the audit row.
+-- (6M1, 6M3). p_request_id and p_client_ip only label the audit row. The
+-- address is typed inet, so the database checks it too.
 --
 -- outcome:
 --   enrolled   the node, its membership and a recorded audit row exist;
@@ -159,10 +162,12 @@ ALTER TABLE waystone.audit_events ADD CONSTRAINT audit_events_outcome_check
 --   expired    the token is past its hour;
 --   pin_taken  the key is already a node's; the token is spent anyway.
 -- An unknown secret returns no row and writes nothing (no tenant to file
--- it under).
+-- it under). A used or expired token gets a denied audit row for its
+-- first 5 refusals only, so whoever holds an old token can't fill the
+-- audit table (6a-H1); the outcome is the same either way.
 -- +goose StatementBegin
 CREATE FUNCTION waystone.enroll_node(p_secret_sha256 bytea, p_agent_spki_sha256 bytea,
-                                     p_request_id text, p_client_ip text)
+                                     p_request_id text, p_client_ip inet)
 RETURNS TABLE (outcome text, node_id uuid, tenant_id uuid, name text)
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -175,6 +180,11 @@ DECLARE
 BEGIN
     IF octet_length(p_secret_sha256) IS DISTINCT FROM 32
        OR octet_length(p_agent_spki_sha256) IS DISTINCT FROM 32 THEN
+        RAISE EXCEPTION 'enroll_node: bad argument';
+    END IF;
+    -- One address, never a network.
+    IF p_client_ip IS NOT NULL
+       AND masklen(p_client_ip) <> (CASE family(p_client_ip) WHEN 4 THEN 32 ELSE 128 END) THEN
         RAISE EXCEPTION 'enroll_node: bad argument';
     END IF;
 
@@ -201,7 +211,7 @@ BEGIN
             INSERT INTO waystone.audit_events (tenant_id, event_id, actor_type, actor_id, actor_name,
                 action, resource_type, resource_id, reason, request_id, outcome, at, client_ip)
             VALUES (e.tenant_id, gen_random_uuid(), e.created_by_type, e.created_by_id, e.created_by_name,
-                'node.enroll', 'node', v_node::text, 'enrolled', p_request_id, 'recorded', now(), p_client_ip);
+                'node.enroll', 'node', v_node::text, 'enrolled', p_request_id, 'recorded', now(), host(p_client_ip));
             RETURN QUERY SELECT 'enrolled'::text, v_node, e.tenant_id, e.name;
             RETURN;
         END IF;
@@ -211,12 +221,18 @@ BEGIN
             RETURN;
         END IF;
         v_outcome := CASE WHEN e.used_at IS NOT NULL THEN 'used' ELSE 'expired' END;
+        UPDATE waystone.node_enrollments ne SET denials = ne.denials + 1
+        WHERE ne.enrollment_id = e.enrollment_id AND ne.denials < 5;
+        IF NOT FOUND THEN
+            RETURN QUERY SELECT v_outcome, NULL::uuid, e.tenant_id, e.name;
+            RETURN;
+        END IF;
     END IF;
 
     INSERT INTO waystone.audit_events (tenant_id, event_id, actor_type, actor_id, actor_name,
         action, resource_type, resource_id, reason, request_id, outcome, at, client_ip)
     VALUES (e.tenant_id, gen_random_uuid(), 'enrollment', e.enrollment_id::text, 'enrollment ' || e.name,
-        'node.enroll', 'node_enrollment', e.enrollment_id::text, v_outcome, p_request_id, 'denied', now(), p_client_ip);
+        'node.enroll', 'node_enrollment', e.enrollment_id::text, v_outcome, p_request_id, 'denied', now(), host(p_client_ip));
     RETURN QUERY SELECT v_outcome, NULL::uuid, e.tenant_id, e.name;
 END;
 $$;
@@ -284,11 +300,11 @@ END;
 $$;
 -- +goose StatementEnd
 
-REVOKE ALL ON FUNCTION waystone.enroll_node(bytea, bytea, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION waystone.enroll_node(bytea, bytea, text, inet) FROM PUBLIC;
 REVOKE ALL ON FUNCTION waystone.agent_node_by_pin(bytea) FROM PUBLIC;
 REVOKE ALL ON FUNCTION waystone.agent_node_by_id(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION waystone.revoke_node(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION waystone.enroll_node(bytea, bytea, text, text) TO waystone_app;
+GRANT EXECUTE ON FUNCTION waystone.enroll_node(bytea, bytea, text, inet) TO waystone_app;
 GRANT EXECUTE ON FUNCTION waystone.agent_node_by_pin(bytea) TO waystone_app;
 GRANT EXECUTE ON FUNCTION waystone.agent_node_by_id(uuid) TO waystone_app;
 GRANT EXECUTE ON FUNCTION waystone.revoke_node(uuid) TO waystone_app;

@@ -57,6 +57,9 @@ What the controller enforces on every browser request:
 
    Stop the controller first: systemd won't start a new socket for a
    service that is already running.
+   The Caddyfile turns Caddy's admin API off, so after any later edit
+   to it run `sudo systemctl restart caddy.service`; `reload` needs the
+   admin API.
 
 6. Check it: `curl -i https://panel.example.com/healthz` answers
    `{"status":"ok"}` with a `Strict-Transport-Security: max-age=300`
@@ -79,6 +82,8 @@ safe to forward ports to it.
    `controller.env` win over the unit's 300-second default.
 3. Forward only 80 and 443. SSH, PostgreSQL and the game servers' ports
    don't need to be reachable from the internet for the panel to work.
+   Never forward the agent port (7443): it is for nodes on your own
+   network.
 4. No CDN or tunnel in front of Caddy (see above): with one, every visitor
    shares one sign-in rate limit and the audit log records the CDN's
    address instead of theirs.

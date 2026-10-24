@@ -9,6 +9,14 @@
 # headers set below, so this block is a contract, not a suggestion. Don't
 # add trusted_proxies: Caddy faces browsers directly.
 
+{
+	# Caddy's admin API listens on localhost:2019 by default, where any
+	# local user could replace this whole configuration. Waystone needs
+	# none of it. With it off, `systemctl reload caddy` can't work:
+	# restart Caddy after editing this file.
+	admin off
+}
+
 panel.example.com {
 	reverse_proxy unix//run/waystone-controller/web.sock {
 		# Waystone accepts exactly these three, set here explicitly so

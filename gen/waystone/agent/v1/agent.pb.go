@@ -387,6 +387,104 @@ func (ResultCode) EnumDescriptor() ([]byte, []int) {
 	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{5}
 }
 
+type EnrollRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The token's secret, exactly 32 bytes.
+	Secret        []byte `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnrollRequest) Reset() {
+	*x = EnrollRequest{}
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnrollRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnrollRequest) ProtoMessage() {}
+
+func (x *EnrollRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnrollRequest.ProtoReflect.Descriptor instead.
+func (*EnrollRequest) Descriptor() ([]byte, []int) {
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *EnrollRequest) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+type EnrollResponse struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	NodeId string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// The name the admin gave the node when making the token.
+	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnrollResponse) Reset() {
+	*x = EnrollResponse{}
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnrollResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnrollResponse) ProtoMessage() {}
+
+func (x *EnrollResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnrollResponse.ProtoReflect.Descriptor instead.
+func (*EnrollResponse) Descriptor() ([]byte, []int) {
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *EnrollResponse) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *EnrollResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
 // What the agent sends.
 type ConnectRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -403,7 +501,7 @@ type ConnectRequest struct {
 
 func (x *ConnectRequest) Reset() {
 	*x = ConnectRequest{}
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[0]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -415,7 +513,7 @@ func (x *ConnectRequest) String() string {
 func (*ConnectRequest) ProtoMessage() {}
 
 func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[0]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -428,7 +526,7 @@ func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectRequest.ProtoReflect.Descriptor instead.
 func (*ConnectRequest) Descriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{0}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ConnectRequest) GetMsg() isConnectRequest_Msg {
@@ -516,7 +614,7 @@ type ConnectResponse struct {
 
 func (x *ConnectResponse) Reset() {
 	*x = ConnectResponse{}
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[1]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -528,7 +626,7 @@ func (x *ConnectResponse) String() string {
 func (*ConnectResponse) ProtoMessage() {}
 
 func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[1]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -541,7 +639,7 @@ func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectResponse.ProtoReflect.Descriptor instead.
 func (*ConnectResponse) Descriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ConnectResponse) GetMsg() isConnectResponse_Msg {
@@ -589,15 +687,19 @@ type Hello struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Compared against the controller's configured node, never used as an
 	// identity on its own.
-	NodeId        string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	AgentVersion  string `protobuf:"bytes,2,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
+	NodeId string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// Must equal the controller's own version (v0.1: upgrade together).
+	AgentVersion string `protobuf:"bytes,2,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
+	// What this agent can run, e.g. "systemd", "minecraft-java" (6a): at
+	// most 8, each 1 to 32 of a-z, 0-9 and '-'.
+	Capabilities  []string `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Hello) Reset() {
 	*x = Hello{}
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -609,7 +711,7 @@ func (x *Hello) String() string {
 func (*Hello) ProtoMessage() {}
 
 func (x *Hello) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -622,7 +724,7 @@ func (x *Hello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hello.ProtoReflect.Descriptor instead.
 func (*Hello) Descriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Hello) GetNodeId() string {
@@ -637,6 +739,13 @@ func (x *Hello) GetAgentVersion() string {
 		return x.AgentVersion
 	}
 	return ""
+}
+
+func (x *Hello) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
 }
 
 type HelloReply struct {
@@ -659,7 +768,7 @@ type HelloReply struct {
 
 func (x *HelloReply) Reset() {
 	*x = HelloReply{}
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -671,7 +780,7 @@ func (x *HelloReply) String() string {
 func (*HelloReply) ProtoMessage() {}
 
 func (x *HelloReply) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -684,7 +793,7 @@ func (x *HelloReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HelloReply.ProtoReflect.Descriptor instead.
 func (*HelloReply) Descriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *HelloReply) GetEpoch() int64 {
@@ -728,7 +837,7 @@ type Report struct {
 
 func (x *Report) Reset() {
 	*x = Report{}
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -740,7 +849,7 @@ func (x *Report) String() string {
 func (*Report) ProtoMessage() {}
 
 func (x *Report) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -753,7 +862,7 @@ func (x *Report) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Report.ProtoReflect.Descriptor instead.
 func (*Report) Descriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Report) GetEpoch() int64 {
@@ -797,7 +906,7 @@ type ReportEntry struct {
 
 func (x *ReportEntry) Reset() {
 	*x = ReportEntry{}
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -809,7 +918,7 @@ func (x *ReportEntry) String() string {
 func (*ReportEntry) ProtoMessage() {}
 
 func (x *ReportEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -822,7 +931,7 @@ func (x *ReportEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportEntry.ProtoReflect.Descriptor instead.
 func (*ReportEntry) Descriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{5}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ReportEntry) GetServerId() string {
@@ -868,7 +977,7 @@ type Command struct {
 
 func (x *Command) Reset() {
 	*x = Command{}
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -880,7 +989,7 @@ func (x *Command) String() string {
 func (*Command) ProtoMessage() {}
 
 func (x *Command) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -893,7 +1002,7 @@ func (x *Command) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Command.ProtoReflect.Descriptor instead.
 func (*Command) Descriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{6}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Command) GetEpoch() int64 {
@@ -937,7 +1046,7 @@ type Progress struct {
 
 func (x *Progress) Reset() {
 	*x = Progress{}
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[7]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -949,7 +1058,7 @@ func (x *Progress) String() string {
 func (*Progress) ProtoMessage() {}
 
 func (x *Progress) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[7]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -962,7 +1071,7 @@ func (x *Progress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Progress.ProtoReflect.Descriptor instead.
 func (*Progress) Descriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{7}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Progress) GetEpoch() int64 {
@@ -1001,7 +1110,7 @@ type Result struct {
 
 func (x *Result) Reset() {
 	*x = Result{}
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[8]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1013,7 +1122,7 @@ func (x *Result) String() string {
 func (*Result) ProtoMessage() {}
 
 func (x *Result) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_agent_v1_agent_proto_msgTypes[8]
+	mi := &file_waystone_agent_v1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1026,7 +1135,7 @@ func (x *Result) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Result.ProtoReflect.Descriptor instead.
 func (*Result) Descriptor() ([]byte, []int) {
-	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{8}
+	return file_waystone_agent_v1_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Result) GetEpoch() int64 {
@@ -1061,7 +1170,12 @@ var File_waystone_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_waystone_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x1dwaystone/agent/v1/agent.proto\x12\x11waystone.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xee\x01\n" +
+	"\x1dwaystone/agent/v1/agent.proto\x12\x11waystone.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"'\n" +
+	"\rEnrollRequest\x12\x16\n" +
+	"\x06secret\x18\x01 \x01(\fR\x06secret\"=\n" +
+	"\x0eEnrollResponse\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xee\x01\n" +
 	"\x0eConnectRequest\x120\n" +
 	"\x05hello\x18\x01 \x01(\v2\x18.waystone.agent.v1.HelloH\x00R\x05hello\x123\n" +
 	"\x06report\x18\x02 \x01(\v2\x19.waystone.agent.v1.ReportH\x00R\x06report\x129\n" +
@@ -1072,10 +1186,11 @@ const file_waystone_agent_v1_agent_proto_rawDesc = "" +
 	"\vhello_reply\x18\x01 \x01(\v2\x1d.waystone.agent.v1.HelloReplyH\x00R\n" +
 	"helloReply\x126\n" +
 	"\acommand\x18\x02 \x01(\v2\x1a.waystone.agent.v1.CommandH\x00R\acommandB\x05\n" +
-	"\x03msg\"E\n" +
+	"\x03msg\"i\n" +
 	"\x05Hello\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12#\n" +
-	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\"\x84\x02\n" +
+	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\x12\"\n" +
+	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\"\x84\x02\n" +
 	"\n" +
 	"HelloReply\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x03R\x05epoch\x12\x1d\n" +
@@ -1151,7 +1266,9 @@ const file_waystone_agent_v1_agent_proto_rawDesc = "" +
 	"\x1aRESULT_CODE_UNKNOWN_SERVER\x10\a\x12\x1b\n" +
 	"\x17RESULT_CODE_SERVER_BUSY\x10\b2h\n" +
 	"\x10AgentLinkService\x12T\n" +
-	"\aConnect\x12!.waystone.agent.v1.ConnectRequest\x1a\".waystone.agent.v1.ConnectResponse(\x010\x01BCZAgithub.com/sharddevs/waystone_panel/gen/waystone/agent/v1;agentv1b\x06proto3"
+	"\aConnect\x12!.waystone.agent.v1.ConnectRequest\x1a\".waystone.agent.v1.ConnectResponse(\x010\x012^\n" +
+	"\rEnrollService\x12M\n" +
+	"\x06Enroll\x12 .waystone.agent.v1.EnrollRequest\x1a!.waystone.agent.v1.EnrollResponseBCZAgithub.com/sharddevs/waystone_panel/gen/waystone/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_waystone_agent_v1_agent_proto_rawDescOnce sync.Once
@@ -1166,7 +1283,7 @@ func file_waystone_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_waystone_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_waystone_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_waystone_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_waystone_agent_v1_agent_proto_goTypes = []any{
 	(Readiness)(0),                // 0: waystone.agent.v1.Readiness
 	(ProcessState)(0),             // 1: waystone.agent.v1.ProcessState
@@ -1174,38 +1291,42 @@ var file_waystone_agent_v1_agent_proto_goTypes = []any{
 	(OperationPhase)(0),           // 3: waystone.agent.v1.OperationPhase
 	(ResultOutcome)(0),            // 4: waystone.agent.v1.ResultOutcome
 	(ResultCode)(0),               // 5: waystone.agent.v1.ResultCode
-	(*ConnectRequest)(nil),        // 6: waystone.agent.v1.ConnectRequest
-	(*ConnectResponse)(nil),       // 7: waystone.agent.v1.ConnectResponse
-	(*Hello)(nil),                 // 8: waystone.agent.v1.Hello
-	(*HelloReply)(nil),            // 9: waystone.agent.v1.HelloReply
-	(*Report)(nil),                // 10: waystone.agent.v1.Report
-	(*ReportEntry)(nil),           // 11: waystone.agent.v1.ReportEntry
-	(*Command)(nil),               // 12: waystone.agent.v1.Command
-	(*Progress)(nil),              // 13: waystone.agent.v1.Progress
-	(*Result)(nil),                // 14: waystone.agent.v1.Result
-	nil,                           // 15: waystone.agent.v1.HelloReply.GamePortsEntry
-	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
+	(*EnrollRequest)(nil),         // 6: waystone.agent.v1.EnrollRequest
+	(*EnrollResponse)(nil),        // 7: waystone.agent.v1.EnrollResponse
+	(*ConnectRequest)(nil),        // 8: waystone.agent.v1.ConnectRequest
+	(*ConnectResponse)(nil),       // 9: waystone.agent.v1.ConnectResponse
+	(*Hello)(nil),                 // 10: waystone.agent.v1.Hello
+	(*HelloReply)(nil),            // 11: waystone.agent.v1.HelloReply
+	(*Report)(nil),                // 12: waystone.agent.v1.Report
+	(*ReportEntry)(nil),           // 13: waystone.agent.v1.ReportEntry
+	(*Command)(nil),               // 14: waystone.agent.v1.Command
+	(*Progress)(nil),              // 15: waystone.agent.v1.Progress
+	(*Result)(nil),                // 16: waystone.agent.v1.Result
+	nil,                           // 17: waystone.agent.v1.HelloReply.GamePortsEntry
+	(*timestamppb.Timestamp)(nil), // 18: google.protobuf.Timestamp
 }
 var file_waystone_agent_v1_agent_proto_depIdxs = []int32{
-	8,  // 0: waystone.agent.v1.ConnectRequest.hello:type_name -> waystone.agent.v1.Hello
-	10, // 1: waystone.agent.v1.ConnectRequest.report:type_name -> waystone.agent.v1.Report
-	13, // 2: waystone.agent.v1.ConnectRequest.progress:type_name -> waystone.agent.v1.Progress
-	14, // 3: waystone.agent.v1.ConnectRequest.result:type_name -> waystone.agent.v1.Result
-	9,  // 4: waystone.agent.v1.ConnectResponse.hello_reply:type_name -> waystone.agent.v1.HelloReply
-	12, // 5: waystone.agent.v1.ConnectResponse.command:type_name -> waystone.agent.v1.Command
-	15, // 6: waystone.agent.v1.HelloReply.game_ports:type_name -> waystone.agent.v1.HelloReply.GamePortsEntry
-	16, // 7: waystone.agent.v1.Report.agent_time:type_name -> google.protobuf.Timestamp
-	11, // 8: waystone.agent.v1.Report.entries:type_name -> waystone.agent.v1.ReportEntry
+	10, // 0: waystone.agent.v1.ConnectRequest.hello:type_name -> waystone.agent.v1.Hello
+	12, // 1: waystone.agent.v1.ConnectRequest.report:type_name -> waystone.agent.v1.Report
+	15, // 2: waystone.agent.v1.ConnectRequest.progress:type_name -> waystone.agent.v1.Progress
+	16, // 3: waystone.agent.v1.ConnectRequest.result:type_name -> waystone.agent.v1.Result
+	11, // 4: waystone.agent.v1.ConnectResponse.hello_reply:type_name -> waystone.agent.v1.HelloReply
+	14, // 5: waystone.agent.v1.ConnectResponse.command:type_name -> waystone.agent.v1.Command
+	17, // 6: waystone.agent.v1.HelloReply.game_ports:type_name -> waystone.agent.v1.HelloReply.GamePortsEntry
+	18, // 7: waystone.agent.v1.Report.agent_time:type_name -> google.protobuf.Timestamp
+	13, // 8: waystone.agent.v1.Report.entries:type_name -> waystone.agent.v1.ReportEntry
 	1,  // 9: waystone.agent.v1.ReportEntry.process_state:type_name -> waystone.agent.v1.ProcessState
 	0,  // 10: waystone.agent.v1.ReportEntry.readiness:type_name -> waystone.agent.v1.Readiness
 	2,  // 11: waystone.agent.v1.Command.action:type_name -> waystone.agent.v1.CommandAction
 	3,  // 12: waystone.agent.v1.Progress.phase:type_name -> waystone.agent.v1.OperationPhase
 	4,  // 13: waystone.agent.v1.Result.outcome:type_name -> waystone.agent.v1.ResultOutcome
 	5,  // 14: waystone.agent.v1.Result.code:type_name -> waystone.agent.v1.ResultCode
-	6,  // 15: waystone.agent.v1.AgentLinkService.Connect:input_type -> waystone.agent.v1.ConnectRequest
-	7,  // 16: waystone.agent.v1.AgentLinkService.Connect:output_type -> waystone.agent.v1.ConnectResponse
-	16, // [16:17] is the sub-list for method output_type
-	15, // [15:16] is the sub-list for method input_type
+	8,  // 15: waystone.agent.v1.AgentLinkService.Connect:input_type -> waystone.agent.v1.ConnectRequest
+	6,  // 16: waystone.agent.v1.EnrollService.Enroll:input_type -> waystone.agent.v1.EnrollRequest
+	9,  // 17: waystone.agent.v1.AgentLinkService.Connect:output_type -> waystone.agent.v1.ConnectResponse
+	7,  // 18: waystone.agent.v1.EnrollService.Enroll:output_type -> waystone.agent.v1.EnrollResponse
+	17, // [17:19] is the sub-list for method output_type
+	15, // [15:17] is the sub-list for method input_type
 	15, // [15:15] is the sub-list for extension type_name
 	15, // [15:15] is the sub-list for extension extendee
 	0,  // [0:15] is the sub-list for field type_name
@@ -1216,13 +1337,13 @@ func file_waystone_agent_v1_agent_proto_init() {
 	if File_waystone_agent_v1_agent_proto != nil {
 		return
 	}
-	file_waystone_agent_v1_agent_proto_msgTypes[0].OneofWrappers = []any{
+	file_waystone_agent_v1_agent_proto_msgTypes[2].OneofWrappers = []any{
 		(*ConnectRequest_Hello)(nil),
 		(*ConnectRequest_Report)(nil),
 		(*ConnectRequest_Progress)(nil),
 		(*ConnectRequest_Result)(nil),
 	}
-	file_waystone_agent_v1_agent_proto_msgTypes[1].OneofWrappers = []any{
+	file_waystone_agent_v1_agent_proto_msgTypes[3].OneofWrappers = []any{
 		(*ConnectResponse_HelloReply)(nil),
 		(*ConnectResponse_Command)(nil),
 	}
@@ -1232,9 +1353,9 @@ func file_waystone_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_waystone_agent_v1_agent_proto_rawDesc), len(file_waystone_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   10,
+			NumMessages:   12,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_waystone_agent_v1_agent_proto_goTypes,
 		DependencyIndexes: file_waystone_agent_v1_agent_proto_depIdxs,

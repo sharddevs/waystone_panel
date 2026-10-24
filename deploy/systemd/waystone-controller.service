@@ -3,7 +3,11 @@
 # sockets: the local API, the browser-facing web socket and the agent's.
 # It refuses to run unless systemd passes exactly those three, so Sockets=
 # names them. WAYSTONE_HSTS_MAX_AGE has a default here; controller.env may
-# override it. Schema migrations are not run from here: they
+# override it. Agents on other machines need one more socket, the TCP
+# listener; the agent-tcp drop-in adds it (stage 6a). Even then this
+# process keeps PrivateNetwork and AF_UNIX: it accepts on the socket
+# systemd opened and never opens one itself. Schema migrations are not
+# run from here: they
 # are a manual step as waystone_owner, and this user only ever gets
 # waystone_app.
 [Unit]
@@ -19,6 +23,9 @@ Environment=WAYSTONE_HSTS_MAX_AGE=300
 EnvironmentFile=/etc/waystone/controller.env
 ExecStart=/usr/local/bin/waystone-controller -agent-uid ${WAYSTONE_AGENT_UID} -agent-node ${WAYSTONE_NODE_ID} -public-url ${WAYSTONE_PUBLIC_URL} -proxy-uid ${WAYSTONE_PROXY_UID} -hsts-max-age ${WAYSTONE_HSTS_MAX_AGE}
 Sockets=waystone-controller-api.socket waystone-controller-web.socket waystone-controller-agent.socket
+# The agent link's key (6a): /var/lib/waystone-controller/agent-tls.
+StateDirectory=waystone-controller
+StateDirectoryMode=0700
 Restart=on-failure
 RestartSec=2
 

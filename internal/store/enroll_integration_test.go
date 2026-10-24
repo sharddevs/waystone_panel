@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -107,7 +108,7 @@ func TestEnrollmentCreateAndList(t *testing.T) {
 		t.Fatalf("tenant B sees %+v, %v", list, err)
 	}
 
-	for _, bad := range []string{"", "a\nb", string(make([]byte, 101))} {
+	for _, bad := range []string{"", "a\nb", strings.Repeat("x", MaxNodeNameBytes+1)} {
 		err := e.store.InTenantTx(context.Background(), adminA, func(ctx context.Context, tx *Tx) error {
 			_, _, err := tx.CreateEnrollment(ctx, bad)
 			return err
@@ -154,6 +155,43 @@ func TestEnrollmentNotForNodes(t *testing.T) {
 		VALUES ($1, gen_random_uuid(), 'x', $2, 'node', $3, 'n')`, tenantA, make([]byte, 32), nodeA)
 	if sqlState(err) != "42501" {
 		t.Fatalf("node insert: %v, want an RLS refusal", err)
+	}
+}
+
+// 6a-I2: the policy's WITH CHECK holds on INSERT. Tenant A's admin can't
+// file a token under tenant B, whichever tenant its transaction names.
+func TestEnrollmentInsertOtherTenant(t *testing.T) {
+	setup(t)
+	c := appConn(t)
+	ctx := context.Background()
+	for _, txTenant := range []string{tenantA, tenantB} {
+		tx, err := c.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustExecTx(t, tx, `SELECT set_config('app.actor_type', 'local_user', true), set_config('app.actor_id', '1000', true), set_config('app.tenant_id', $1, true)`, txTenant)
+		_, err = tx.Exec(ctx, `INSERT INTO waystone.node_enrollments (tenant_id, enrollment_id, name, secret_sha256, created_by_type, created_by_id, created_by_name)
+			VALUES ($1, gen_random_uuid(), 'x', $2, 'local_user', '1000', 'admin a')`, tenantB, make([]byte, 32))
+		if sqlState(err) != "42501" {
+			t.Errorf("tx tenant %s: insert for B: %v, want an RLS refusal", txTenant, err)
+		}
+		tx.Rollback(ctx)
+	}
+}
+
+// enroll_node takes one address, typed inet, never a network or junk.
+func TestEnrollNodeClientIPTyped(t *testing.T) {
+	setup(t)
+	c := appConn(t)
+	ctx := context.Background()
+	for _, bad := range []string{"10.0.0.0/8", "2001:db8::/64", "not an ip"} {
+		_, err := c.Exec(ctx, `SELECT * FROM waystone.enroll_node($1, $2, 'r', $3)`, make([]byte, 32), make([]byte, 32), bad)
+		if err == nil {
+			t.Errorf("client_ip %q accepted", bad)
+		}
+	}
+	if _, err := c.Exec(ctx, `SELECT * FROM waystone.enroll_node($1, $2, 'r', $3)`, make([]byte, 32), make([]byte, 32), "2001:db8::1"); err != nil {
+		t.Errorf("one address refused: %v", err)
 	}
 }
 
@@ -275,6 +313,18 @@ func TestEnrollNodeOutcomes(t *testing.T) {
 		if _, err := e.store.EnrollNode(ctx, sha256.Sum256(secret[:]), pinOf(5), a); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("%+v: %v, want ErrInvalidInput", a, err)
 		}
+	}
+
+	// 6a-H1: an old token is refused every time, but audited only for
+	// its first 5 refusals.
+	for range 10 {
+		if r := e.enroll(t, secret, pinOf(6)); r.Outcome != EnrollUsed {
+			t.Fatalf("old token: %+v", r)
+		}
+	}
+	var denied int
+	if err := e.owner.QueryRow(ctx, `SELECT count(*) FROM waystone.audit_events WHERE action = 'node.enroll' AND outcome = 'denied' AND resource_id = $1`, en.ID).Scan(&denied); err != nil || denied != 5 {
+		t.Fatalf("denied rows for one token: %d, %v; want 5", denied, err)
 	}
 }
 

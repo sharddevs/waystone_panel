@@ -131,3 +131,115 @@ var AgentLinkService_ServiceDesc = grpc.ServiceDesc{
 	},
 	Metadata: "waystone/agent/v1/agent.proto",
 }
+
+const (
+	EnrollService_Enroll_FullMethodName = "/waystone.agent.v1.EnrollService/Enroll"
+)
+
+// EnrollServiceClient is the client API for EnrollService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Enrollment (stage 6a): a new node redeems a one-time token. Only the
+// TCP listener serves it, and it is the one call a key that isn't pinned
+// yet may make. The key that gets pinned is the one this connection's
+// TLS handshake proved, never anything in the request.
+type EnrollServiceClient interface {
+	Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error)
+}
+
+type enrollServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewEnrollServiceClient(cc grpc.ClientConnInterface) EnrollServiceClient {
+	return &enrollServiceClient{cc}
+}
+
+func (c *enrollServiceClient) Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EnrollResponse)
+	err := c.cc.Invoke(ctx, EnrollService_Enroll_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// EnrollServiceServer is the server API for EnrollService service.
+// All implementations must embed UnimplementedEnrollServiceServer
+// for forward compatibility.
+//
+// Enrollment (stage 6a): a new node redeems a one-time token. Only the
+// TCP listener serves it, and it is the one call a key that isn't pinned
+// yet may make. The key that gets pinned is the one this connection's
+// TLS handshake proved, never anything in the request.
+type EnrollServiceServer interface {
+	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
+	mustEmbedUnimplementedEnrollServiceServer()
+}
+
+// UnimplementedEnrollServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedEnrollServiceServer struct{}
+
+func (UnimplementedEnrollServiceServer) Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Enroll not implemented")
+}
+func (UnimplementedEnrollServiceServer) mustEmbedUnimplementedEnrollServiceServer() {}
+func (UnimplementedEnrollServiceServer) testEmbeddedByValue()                       {}
+
+// UnsafeEnrollServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to EnrollServiceServer will
+// result in compilation errors.
+type UnsafeEnrollServiceServer interface {
+	mustEmbedUnimplementedEnrollServiceServer()
+}
+
+func RegisterEnrollServiceServer(s grpc.ServiceRegistrar, srv EnrollServiceServer) {
+	// If the following call panics, it indicates UnimplementedEnrollServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&EnrollService_ServiceDesc, srv)
+}
+
+func _EnrollService_Enroll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnrollRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EnrollServiceServer).Enroll(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EnrollService_Enroll_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EnrollServiceServer).Enroll(ctx, req.(*EnrollRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// EnrollService_ServiceDesc is the grpc.ServiceDesc for EnrollService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var EnrollService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "waystone.agent.v1.EnrollService",
+	HandlerType: (*EnrollServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Enroll",
+			Handler:    _EnrollService_Enroll_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "waystone/agent/v1/agent.proto",
+}

@@ -98,10 +98,17 @@ func TestCheckHelloReply(t *testing.T) {
 	}
 }
 
-// R6: only ABORTED with exactly session_replaced is a replacement.
-func TestIsReplaced(t *testing.T) {
-	if !isReplaced(status.Error(codes.Aborted, "session_replaced")) {
-		t.Error("session_replaced not recognised")
+// R6, 6a: only these exact statuses get the long wait.
+func TestIsLongWait(t *testing.T) {
+	for _, err := range []error{
+		status.Error(codes.Aborted, "session_replaced"),
+		status.Error(codes.PermissionDenied, "node_revoked"),
+		status.Error(codes.PermissionDenied, "not_permitted"),
+		status.Error(codes.FailedPrecondition, "version_mismatch"),
+	} {
+		if !isLongWait(err) {
+			t.Errorf("%v not recognised", err)
+		}
 	}
 	for _, err := range []error{
 		nil,
@@ -109,9 +116,12 @@ func TestIsReplaced(t *testing.T) {
 		status.Error(codes.Aborted, "something else"),
 		status.Error(codes.Unavailable, "session_replaced"),
 		status.Error(codes.Unavailable, "shutting_down"),
+		status.Error(codes.PermissionDenied, "something else"),
+		status.Error(codes.Unavailable, "node_revoked"),
+		status.Error(codes.FailedPrecondition, "node_mismatch"),
 	} {
-		if isReplaced(err) {
-			t.Errorf("%v counted as replaced", err)
+		if isLongWait(err) {
+			t.Errorf("%v counted as a long wait", err)
 		}
 	}
 }

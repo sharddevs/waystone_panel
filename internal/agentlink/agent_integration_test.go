@@ -292,6 +292,7 @@ func TestHealthySessionResetsBackoff(t *testing.T) {
 		ControllerSocket: e.path,
 		ControllerUID:    uint32(os.Getuid()),
 		NodeID:           nodeA,
+		Version:          "test",
 		Helper:           &fakeHelper{},
 		Runner:           &fakeRunner{},
 		Prober:           fakeProber{},

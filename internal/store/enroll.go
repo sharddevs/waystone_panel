@@ -39,10 +39,14 @@ type Enrollment struct {
 	NodeID string
 }
 
-// ValidNodeName reports whether name can be a node's name: 1 to 100 bytes
-// of UTF-8 without control characters, like an actor's name.
+// MaxNodeNameBytes keeps "node <name>", the node's actor name, within
+// an actor name's 100 bytes.
+const MaxNodeNameBytes = 64
+
+// ValidNodeName reports whether name can be a new node's name: 1 to
+// MaxNodeNameBytes bytes of UTF-8 without control characters.
 func ValidNodeName(name string) bool {
-	if len(name) < 1 || len(name) > 100 || !utf8.ValidString(name) {
+	if len(name) < 1 || len(name) > MaxNodeNameBytes || !utf8.ValidString(name) {
 		return false
 	}
 	for _, r := range name {
@@ -163,8 +167,9 @@ type EnrollAudit struct {
 // no actor: the token is the authority, like a password at sign-in. spki
 // must come from the TLS handshake, never from a request (6M1).
 //
-// Every outcome but EnrollUnknown leaves an audit row. Any error means
-// nothing was redeemed.
+// Every outcome but EnrollUnknown leaves an audit row, except that a used
+// or expired token is audited for its first 5 refusals only (6a-H1). Any
+// error means nothing was redeemed.
 func (s *Store) EnrollNode(ctx context.Context, secretSHA256, spki [32]byte, a EnrollAudit) (Enrolled, error) {
 	if !validLabel(a.RequestID) {
 		return Enrolled{}, ErrInvalidInput
@@ -217,9 +222,15 @@ type AgentNode struct {
 	Revoked  bool
 }
 
-// Actor is the node's actor for its transactions.
+// Actor is the node's actor for its transactions, named "node <name>".
+// A name too long for that (only an older node's can be) gives
+// "node <ID>" instead.
 func (n AgentNode) Actor() Actor {
-	return Actor{Type: ActorNode, ID: n.NodeID, Name: "node " + n.Name}
+	name := "node " + n.Name
+	if len(name) > 100 {
+		name = "node " + n.NodeID
+	}
+	return Actor{Type: ActorNode, ID: n.NodeID, Name: name}
 }
 
 // AgentNodeByPin finds the node whose key is pinned as spki (6M2), revoked

@@ -55,6 +55,8 @@ func TestActivatedListeners(t *testing.T) {
 		{"waystone-controller-api:waystone-controller-web:something-else", "error"},
 		{"waystone-controller-api:waystone-controller-web:waystone-controller-agent:extra", "error"},
 		{"waystone-controller-api:waystone-controller-api", "error"},
+		// The TCP agent listener's name on a Unix socket (6a).
+		{"waystone-controller-api:waystone-controller-web:waystone-controller-agent-tcp", "error"},
 	}
 	for _, c := range cases {
 		n := len(strings.Split(c.names, ":"))

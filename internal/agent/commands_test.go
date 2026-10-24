@@ -526,7 +526,7 @@ func TestResultNeverCrossesSessions(t *testing.T) {
 		<-r.entered // the runner has it
 		return status.Error(codes.Aborted, msgSessionReplaced)
 	}}
-	if err := runAgainst(t, first, r); !isReplaced(err) {
+	if err := runAgainst(t, first, r); !isLongWait(err) {
 		t.Fatalf("first session: %v", err)
 	}
 
