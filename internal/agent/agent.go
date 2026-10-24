@@ -239,6 +239,7 @@ func (a *Agent) logf(format string, args ...any) { a.log.Printf(format, args...)
 
 // Run connects, reports, and reconnects with backoff until ctx is done.
 func (a *Agent) Run(ctx context.Context) error {
+	a.clearStaging()
 	for {
 		healthy, err := a.session(ctx)
 		if ctx.Err() != nil {

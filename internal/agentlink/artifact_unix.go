@@ -20,8 +20,12 @@ import (
 
 // openArtifact opens a cached jar without following a link, and keeps it
 // only if it is a regular file this process owns, of the pinned size.
+// Anything else there is errBadArtifact.
 func openArtifact(path string, size int64) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("%s: a link: %w", path, errBadArtifact)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -33,11 +37,11 @@ func openArtifact(path string, size int64) (*os.File, error) {
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	switch {
 	case !fi.Mode().IsRegular():
-		err = fmt.Errorf("%s: not a regular file", path)
+		err = fmt.Errorf("%s: not a regular file: %w", path, errBadArtifact)
 	case !ok || int(st.Uid) != os.Geteuid():
-		err = fmt.Errorf("%s: not owned by the controller", path)
+		err = fmt.Errorf("%s: not owned by the controller: %w", path, errBadArtifact)
 	case fi.Size() != size:
-		err = fmt.Errorf("%s: %d bytes, want %d", path, fi.Size(), size)
+		err = fmt.Errorf("%s: %d bytes, want %d: %w", path, fi.Size(), size, errBadArtifact)
 	}
 	if err != nil {
 		f.Close()

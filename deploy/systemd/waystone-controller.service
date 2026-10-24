@@ -13,7 +13,10 @@
 [Unit]
 Description=Waystone controller
 Requires=waystone-controller-api.socket waystone-controller-web.socket waystone-controller-agent.socket
-After=waystone-controller-api.socket waystone-controller-web.socket waystone-controller-agent.socket postgresql.service
+# The fetch service's socket fills the jar cache (6c-3, audit 6c-I7). It
+# isn't one of Sockets=: the controller connects to it, like a client.
+Wants=waystone-fetch.socket
+After=waystone-controller-api.socket waystone-controller-web.socket waystone-controller-agent.socket waystone-fetch.socket postgresql.service
 
 [Service]
 Type=simple

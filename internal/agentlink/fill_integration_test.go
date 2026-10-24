@@ -15,6 +15,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -181,5 +182,29 @@ func TestFillChecksSHA1(t *testing.T) {
 	}
 	if left, _ := os.ReadDir(cache); len(left) != 0 {
 		t.Errorf("cache has %v", left)
+	}
+}
+
+// 6c-I5: a wrong-size file in the cache doesn't stop a fill for good: it
+// is removed and fetched again, once.
+func TestFillReplacesABadCacheFile(t *testing.T) {
+	f := &fakeFetch{content: testJar}
+	e, cache := setupFill(t, f)
+	c := e.client(t)
+	art := testArtifact()
+	sum, _ := hex.DecodeString(art.SHA256)
+	if err := os.WriteFile(filepath.Join(cache, art.SHA256), testJar[:100], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, epoch, r := e.session(t)
+	_, op := e.install(t, r, epoch, "new", 25600)
+	if got, err := fetch(c, op, sum); err != nil || !bytes.Equal(got, testJar) {
+		t.Fatalf("%d bytes, %v", len(got), err)
+	}
+	if n := f.calls.Load(); n != 1 {
+		t.Errorf("%d fetches, want 1", n)
+	}
+	if !strings.Contains(e.logs.String(), "agent_link=artifact_refused") {
+		t.Error("no artifact_refused line")
 	}
 }

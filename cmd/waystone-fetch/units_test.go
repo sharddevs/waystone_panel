@@ -75,6 +75,12 @@ func TestFetchUnits(t *testing.T) {
 		"Service.NoNewPrivileges":         "yes",
 		"Service.CapabilityBoundingSet":   "",
 		"Service.ProtectSystem":           "strict",
+		"Service.IPAddressDeny":           "localhost link-local multicast",
+		"Service.ProtectProc":             "invisible",
+		"Service.ProcSubset":              "pid",
+		"Service.PrivateUsers":            "yes",
+		"Service.RemoveIPC":               "yes",
+		"Service.KeyringMode":             "private",
 	} {
 		if u[k] != v {
 			t.Errorf("service: %s = %q, want %q", k, u[k], v)

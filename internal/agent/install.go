@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -206,6 +207,29 @@ func (a *Agent) fetchAndInstall(ctx context.Context, link agentv1.AgentLinkServi
 	callCtx, done := context.WithTimeout(ctx, a.commandCallTimeout)
 	defer done()
 	return minecraft.InstallServerJar(callCtx, a.provisioner, server, op, jar, sum)
+}
+
+// clearStaging removes the jars an agent that was killed mid-install left
+// in the staging directory (audit 6c-I4). At start nothing is in flight, so
+// every *.jar there is stale. os.Remove never follows a link.
+func (a *Agent) clearStaging() {
+	entries, err := os.ReadDir(a.stagingDir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			a.logf("agent=staging_unreadable error=%q", err.Error())
+		}
+		return
+	}
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".jar") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(a.stagingDir, e.Name())); err != nil {
+			a.logf("agent=staging_left file=%s error=%q", e.Name(), err.Error())
+			continue
+		}
+		a.logf("agent=staging_removed file=%s", e.Name())
+	}
 }
 
 // receive copies FetchArtifact's stream into w, refusing more than size

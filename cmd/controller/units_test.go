@@ -176,6 +176,7 @@ func TestAgentTCPUnits(t *testing.T) {
 		"Service.StateDirectory":          "waystone-controller waystone-controller/artifacts",
 		"Service.StateDirectoryMode":      "0700",
 		"Service.SupplementaryGroups":     "waystone-fetch",
+		"Unit.Wants":                      "waystone-fetch.socket",
 	} {
 		if u[k] != v {
 			t.Errorf("controller: %s = %q, want %q", k, u[k], v)

@@ -15,6 +15,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -391,5 +392,27 @@ func TestServerAdded(t *testing.T) {
 	}
 	if err := full.add(added(3, srv5, 0)); !errors.Is(err, errProtocol) {
 		t.Errorf("one more than %d: %v", maxServers, err)
+	}
+}
+
+// 6c-I4: a jar a killed agent left behind is removed when the agent
+// starts; anything else in the directory stays.
+func TestRunClearsStaging(t *testing.T) {
+	a := installAgent(t, &fakeProv{})
+	stale := filepath.Join(a.stagingDir, "0199e1a0-0000-7000-8000-00000000dead.jar")
+	other := filepath.Join(a.stagingDir, "keep.txt")
+	for _, p := range []string{stale, other} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	a.Run(ctx)
+	if _, err := os.Lstat(stale); !os.IsNotExist(err) {
+		t.Errorf("the stale jar is still there: %v", err)
+	}
+	if _, err := os.Lstat(other); err != nil {
+		t.Errorf("another file was removed: %v", err)
 	}
 }

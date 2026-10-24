@@ -243,8 +243,10 @@ func TestInstallSpecAndFetchAuthorization(t *testing.T) {
 }
 
 // N7: the cache is checked as it is read. A wrong copy of the right size
-// ends the stream with artifact_mismatch and is removed; a missing file, a
-// link, a FIFO or the wrong size is artifact_unavailable and stays.
+// ends the stream with artifact_mismatch and is removed; a missing file is
+// artifact_unavailable; a link, a FIFO, the wrong size or someone else's
+// file is artifact_unavailable and removed, so a fill can replace it
+// (audit 6c-I5). Here there's no fetch service.
 func TestFetchArtifactCache(t *testing.T) {
 	e, dir := setupInstall(t)
 	c := e.client(t)
@@ -281,7 +283,13 @@ func TestFetchArtifactCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantStatus("short", codes.NotFound, MsgArtifactUnavailable)
-	os.Remove(path)
+	gone := func(name string) {
+		t.Helper()
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Errorf("%s: still there: %v", name, err)
+		}
+	}
+	gone("short")
 
 	real := filepath.Join(t.TempDir(), "jar")
 	if err := os.WriteFile(real, testJar, 0o600); err != nil {
@@ -291,16 +299,16 @@ func TestFetchArtifactCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantStatus("a link", codes.NotFound, MsgArtifactUnavailable)
-	if _, err := os.Lstat(path); err != nil {
-		t.Errorf("the link was removed: %v", err)
+	gone("a link")
+	if _, err := os.Stat(real); err != nil {
+		t.Errorf("the link's target was removed: %v", err)
 	}
-	os.Remove(path)
 
 	if err := mkfifo(path); err != nil {
 		t.Fatal(err)
 	}
 	wantStatus("a FIFO", codes.NotFound, MsgArtifactUnavailable)
-	os.Remove(path)
+	gone("a FIFO")
 
 	if err := os.WriteFile(path, testJar, 0o600); err != nil {
 		t.Fatal(err)
@@ -311,7 +319,8 @@ func TestFetchArtifactCache(t *testing.T) {
 			t.Fatal(err)
 		}
 		wantStatus("another owner", codes.NotFound, MsgArtifactUnavailable)
-		if err := os.Chown(path, 0, 0); err != nil {
+		gone("another owner")
+		if err := os.WriteFile(path, testJar, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -30,6 +30,13 @@ ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Network, but nothing on this host or its link (audit 6c-I6).
+IPAddressDeny=localhost link-local multicast
+ProtectProc=invisible
+ProcSubset=pid
+PrivateUsers=yes
+RemoveIPC=yes
+KeyringMode=private
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

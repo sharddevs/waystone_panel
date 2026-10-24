@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -96,6 +97,9 @@ func (s *Server) GetInstallSpec(ctx context.Context, req *agentv1.GetInstallSpec
 	}, nil
 }
 
+// errBadArtifact: something other than the pinned jar is in the cache.
+var errBadArtifact = errors.New("not the pinned artifact")
+
 // FetchWait is the most a FetchArtifact waits for the fetch service.
 const FetchWait = 3 * time.Minute
 
@@ -158,6 +162,17 @@ func (s *Server) FetchArtifact(req *agentv1.FetchArtifactRequest, stream agentv1
 
 	path := filepath.Join(s.artifactDir, art.SHA256)
 	f, err := openArtifact(path, art.Size)
+	if errors.Is(err, errBadArtifact) {
+		// A link, a FIFO, the wrong size or someone else's file: never
+		// served, and removed so a fill can replace it (audit 6c-I5).
+		// os.Remove never follows a link.
+		rmErr := os.Remove(path)
+		s.logf("WARNING agent_link=artifact_refused node=%s op=%s sha256=%s error=%q removed=%t",
+			n.NodeID, req.GetOperationId(), art.SHA256, err.Error(), rmErr == nil)
+		if rmErr == nil {
+			err = fmt.Errorf("%s: removed: %w", path, os.ErrNotExist)
+		}
+	}
 	if errors.Is(err, os.ErrNotExist) && s.fetch != nil {
 		if err = s.fill(ctx, art); err == nil {
 			f, err = openArtifact(path, art.Size)
