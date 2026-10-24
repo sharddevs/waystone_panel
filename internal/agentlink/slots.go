@@ -29,6 +29,8 @@ const (
 	MaxEnrollOnly    = 16
 	MaxPinned        = 64
 	UnpinnedLifetime = 30 * time.Second
+	// MaxStreamsPerConn caps the concurrent calls on one TCP connection.
+	MaxStreamsPerConn = 4
 	// enrollGrace is how long a connection stays after its Enroll call
 	// returns, so the answer gets out.
 	enrollGrace = time.Second
@@ -181,6 +183,14 @@ func (c *slotConn) settle(pinned bool) bool {
 		c.timer = time.AfterFunc(c.slots.lifetime, func() { c.Close() })
 	}
 	return true
+}
+
+// isPinned reports whether the connection's key was an active node's at
+// the handshake.
+func (c *slotConn) isPinned() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pool == poolPinned
 }
 
 // claimEnroll reports whether this connection may make its one Enroll

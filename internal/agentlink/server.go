@@ -247,7 +247,10 @@ func New(cfg Config) (*Server, error) {
 		lookup := func(ctx context.Context, pin agenttls.Pin) (store.AgentNode, error) {
 			return s.nodes.AgentNodeByPin(ctx, pin)
 		}
-		s.grpcTCP = grpc.NewServer(opts(grpc.Creds(newTLSCreds(*cfg.TLS, lookup, s.logf)))...)
+		// A node needs one Connect stream; a few more cover a reconnect
+		// racing the old stream's end (6a-H4).
+		tcpOpts := append(opts(grpc.Creds(newTLSCreds(*cfg.TLS, lookup, s.logf))), grpc.MaxConcurrentStreams(MaxStreamsPerConn))
+		s.grpcTCP = grpc.NewServer(tcpOpts...)
 		agentv1.RegisterAgentLinkServiceServer(s.grpcTCP, s)
 		agentv1.RegisterEnrollServiceServer(s.grpcTCP, &enrollServer{s: s})
 	}

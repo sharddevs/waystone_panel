@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -151,9 +152,11 @@ func (e *tcpEnv) enrolled(t *testing.T, name string) (tls.Certificate, string) {
 func tcpHello(t *testing.T, s agentv1.AgentLinkService_ConnectClient, node, version string, caps ...string) (*agentv1.HelloReply, error) {
 	t.Helper()
 	err := s.Send(&agentv1.ConnectRequest{Msg: &agentv1.ConnectRequest_Hello{Hello: &agentv1.Hello{NodeId: node, AgentVersion: version, Capabilities: caps}}})
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
+	// io.EOF from Send: the server already ended the stream, and Recv
+	// has its status.
 	m, err := s.Recv()
 	if err != nil {
 		return nil, err
@@ -350,7 +353,18 @@ func TestTCPLookupFailureFallsClosed(t *testing.T) {
 			f.mu.Unlock()
 			s := connectStream(t, e.dial(t, key, ""))
 			_, err := tcpHello(t, s, node, "test")
-			wantStatus(t, "Connect", err, codes.Unavailable, "lookup_failed")
+			if failFrom == 1 {
+				// Enroll-only: refused before any lookup (6a-H4).
+				wantStatus(t, "Connect", err, codes.PermissionDenied, MsgNotPermitted)
+			} else {
+				wantStatus(t, "Connect", err, codes.Unavailable, "lookup_failed")
+			}
+			f.mu.Lock()
+			calls := f.calls
+			f.mu.Unlock()
+			if calls != failFrom {
+				t.Errorf("%d lookups, want %d", calls, failFrom)
+			}
 			e.srv.slots.mu.Lock()
 			counts := e.srv.slots.count
 			e.srv.slots.mu.Unlock()
@@ -358,6 +372,25 @@ func TestTCPLookupFailureFallsClosed(t *testing.T) {
 				t.Fatalf("a failed lookup took a pinned slot: %v", counts)
 			}
 		})
+	}
+}
+
+// 6a-H4: Connect on a connection that may only enroll costs no lookup,
+// however many streams it opens.
+func TestTCPEnrollOnlyConnectNoLookups(t *testing.T) {
+	f := &failingNodes{failFrom: 1 << 30}
+	e := setupTCP(t, func(c *Config) { c.Nodes = f })
+	f.NodeLookup = e.store
+	cc := e.dial(t, newKey(t), "")
+	for i := range 100 {
+		s := connectStream(t, cc)
+		_, err := tcpHello(t, s, nodeA, "test")
+		wantStatus(t, fmt.Sprintf("Connect %d", i), err, codes.PermissionDenied, MsgNotPermitted)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.calls != 1 {
+		t.Fatalf("%d lookups for one handshake and 100 refused streams, want 1", f.calls)
 	}
 }
 

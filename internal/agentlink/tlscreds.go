@@ -28,6 +28,8 @@ type TLSAuth struct {
 	// conn is the listener's connection, for Enroll's one call; nil if
 	// the listener isn't the slot listener.
 	conn *slotConn
+	// revoked: at the handshake the key was a revoked node's.
+	revoked bool
 }
 
 // tlsCreds is the controller's TLS on the agent listener (6a-2): gRPC's
@@ -61,18 +63,20 @@ func (c *tlsCreds) ServerHandshake(raw net.Conn) (net.Conn, credentials.AuthInfo
 		return nil, nil, fmt.Errorf("agent link: %w", err)
 	}
 	sc, _ := raw.(*slotConn)
+	revoked := false
 	if sc != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), pinLookupTimeout)
 		n, err := c.lookup(ctx, pin)
 		cancel()
 		pinned := err == nil && !n.Revoked
+		revoked = err == nil && n.Revoked
 		if !sc.settle(pinned) {
 			conn.Close()
 			c.log("agent_link=refused reason=no_slot pinned=%t", pinned)
 			return nil, nil, fmt.Errorf("agent link: no connection slot")
 		}
 	}
-	return conn, TLSAuth{TLSInfo: ti, Pin: pin, conn: sc}, nil
+	return conn, TLSAuth{TLSInfo: ti, Pin: pin, conn: sc, revoked: revoked}, nil
 }
 
 func (c *tlsCreds) Clone() credentials.TransportCredentials {

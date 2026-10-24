@@ -115,6 +115,22 @@ func (s *Server) streamAuthz(srv any, ss grpc.ServerStream, info *grpc.StreamSer
 		s.refusedCall(info.FullMethod)
 		return errNotPermitted
 	}
+	// A connection whose key wasn't an active node's at the handshake
+	// may only enroll: refused here, with no lookup, so it can't turn
+	// streams into database round-trips (6a-H4).
+	if p, ok := peer.FromContext(ss.Context()); ok {
+		if a, ok := p.AuthInfo.(TLSAuth); ok && a.conn != nil && !a.conn.isPinned() {
+			if a.revoked {
+				// Said plainly, so a revoked agent backs off and its
+				// log says why; the connection goes soon after.
+				err := streamError(codes.PermissionDenied, MsgNodeRevoked)
+				dropIfRevoked(ss.Context(), err)
+				return err
+			}
+			s.refusedCall(info.FullMethod)
+			return errNotPermitted
+		}
+	}
 	n, err := s.resolveNode(ss.Context())
 	if err == nil {
 		err = handler(srv, &nodeStream{ServerStream: ss, ctx: context.WithValue(ss.Context(), nodeKey{}, n)})
