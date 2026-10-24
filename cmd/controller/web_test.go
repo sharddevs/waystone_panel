@@ -47,7 +47,8 @@ func TestWebRoutesCovered(t *testing.T) {
 	}
 	// Every route, with the CSRF policy it must have and whether it needs
 	// a session: the four session routes (5a-2), the browser API (5b,
-	// scope §5, the Nodes API of 6b and create/install of 6c) and the UI
+	// scope §5, the Nodes API of 6b, create/install of 6c and the log of
+	// 7a) and the UI
 	// (5c, §6). Nothing else may be on web.sock.
 	type policy struct {
 		csrf    web.CSRFPolicy
@@ -64,6 +65,7 @@ func TestWebRoutesCovered(t *testing.T) {
 		"POST /api/v1/servers/{id}/install":     {web.CSRFRequired, true},
 		"POST /api/v1/servers/{id}/accept-eula": {web.CSRFRequired, true},
 		"GET /api/v1/servers/{id}":              {web.CSRFNotApplicable, true},
+		"GET /api/v1/servers/{id}/logs":         {web.CSRFNotApplicable, true},
 		"POST /api/v1/servers/{id}/start":       {web.CSRFRequired, true},
 		"POST /api/v1/servers/{id}/stop":        {web.CSRFRequired, true},
 		"POST /api/v1/servers/{id}/restart":     {web.CSRFRequired, true},

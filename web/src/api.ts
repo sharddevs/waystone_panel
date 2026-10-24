@@ -141,6 +141,21 @@ export interface CreatedServer {
   operation: Operation
 }
 
+// LogLine and LogPage are one read of a server's log (7a), oldest line
+// first. cursor is where the next read continues, null before the
+// server has logged anything; more says lines already follow it.
+export interface LogLine {
+  time: string
+  priority: number
+  text: string
+}
+
+export interface LogPage {
+  lines: LogLine[]
+  cursor: string | null
+  more: boolean
+}
+
 export interface Session {
   user: { id: string; display_name: string }
   csrf_token: string
@@ -236,6 +251,12 @@ export const decodeEnrollment: Decoder<Enrollment> = object({
 export const decodeEnrollmentList: Decoder<{ enrollments: Enrollment[] }> = object({ enrollments: array(decodeEnrollment) })
 export const decodeNewEnrollment: Decoder<NewEnrollment> = object({ enrollment: decodeEnrollment, bundle: str, command: str })
 export const decodeCreatedServer: Decoder<CreatedServer> = object({ server: decodeServer, operation: decodeOperation })
+
+export const decodeLogPage: Decoder<LogPage> = object({
+  lines: array(object({ time, priority: int, text: str })),
+  cursor: nullable(str),
+  more: bool,
+})
 
 export const decodePreferences: Decoder<Preferences> = object({
   theme: oneOf(themes),
@@ -389,6 +410,16 @@ export class Client {
   // operation; the same key and body again is the same answer (6c).
   createServer(body: NewServer, csrf: string, idempotencyKey: string): Promise<CreatedServer> {
     return this.request('POST', '/api/v1/servers', decodeCreatedServer, { body, csrf, idempotencyKey })
+  }
+
+  // logs reads a server's log (7a): the newest lines, or with after the
+  // lines after that cursor. Admins only.
+  logs(serverId: string, after: string | null = null, limit?: number): Promise<LogPage> {
+    const p = new URLSearchParams()
+    if (after !== null) p.set('after', after)
+    if (limit !== undefined) p.set('limit', String(limit))
+    const qs = p.toString()
+    return this.request('GET', `/api/v1/servers/${encodeURIComponent(serverId)}/logs${qs ? `?${qs}` : ''}`, decodeLogPage)
   }
 
   // Nodes (6b). Admins only; anyone else gets 403 forbidden.

@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/sharddevs/waystone_panel/internal/service"
 	"github.com/sharddevs/waystone_panel/internal/store"
 )
 
@@ -82,6 +83,12 @@ type env struct {
 
 func setup(t *testing.T) *env {
 	t.Helper()
+	return setupWith(t, nil)
+}
+
+// setupWith is setup with a log reader (7a): nil means none, as setup.
+func setupWith(t *testing.T, readLog service.LogReader) *env {
+	t.Helper()
 	ctx := context.Background()
 	if !strings.Contains(ownerDSN(), "waystone_test") {
 		t.Fatalf("refusing to wipe a database that isn't waystone_test: %q", ownerDSN())
@@ -133,8 +140,12 @@ func setup(t *testing.T) *env {
 	t.Cleanup(st.Close)
 	e := &env{owner: owner, now: time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)}
 	st.Now = func() time.Time { return e.now }
-	e.h = New(Config{Version: "test", Store: st, Lookup: fakeLookup, Log: log.New(&e.logs, "", 0),
-		Now: func() time.Time { return e.now }})
+	cfg := Config{Version: "test", Store: st, Lookup: fakeLookup, Log: log.New(&e.logs, "", 0),
+		Now: func() time.Time { return e.now }}
+	if readLog != nil {
+		cfg.Service = service.New(service.Config{Store: st, Log: cfg.Log, Now: cfg.Now, ReadLog: readLog})
+	}
+	e.h = New(cfg)
 	return e
 }
 

@@ -90,6 +90,7 @@ message ConnectRequest {
     Report report = 2;
     Progress progress = 3;
     Result result = 4;
+    LogChunk log_chunk = 5;
   }
 }
 
@@ -99,7 +100,51 @@ message ConnectResponse {
     HelloReply hello_reply = 1;
     Command command = 2;
     ServerAdded server_added = 3;
+    LogRequest log_request = 4;
   }
+}
+
+// A read of a server's log (stage 7a). Not a command: it changes
+// nothing, so no operation is recorded and decision N doesn't apply. The
+// agent answers each with exactly one LogChunk, and has at most 4 out at
+// once.
+message LogRequest {
+  int64 epoch = 1;
+  // A fresh UUID per read, echoed in the LogChunk.
+  string request_id = 2;
+  string server_id = 3;
+  // Empty: the newest lines. Otherwise a cursor from an earlier chunk.
+  string after_cursor = 4;
+  // 1 to 200.
+  uint32 limit = 5;
+}
+
+// What a LogRequest found, as the helper gave it.
+message LogChunk {
+  string request_id = 1;
+  LogCode code = 2;
+  // Only with LOG_CODE_UNSPECIFIED. The same rules as the helper's
+  // LogResult: at most limit lines, oldest first, cleaned, 48 KiB of
+  // text in all.
+  repeated LogLine lines = 3;
+  string cursor = 4;
+  bool more = 5;
+}
+
+message LogLine {
+  int64 time_unix_micro = 1;
+  uint32 priority = 2;
+  string text = 3;
+}
+
+enum LogCode {
+  // The read worked; lines may still be empty.
+  LOG_CODE_UNSPECIFIED = 0;
+  // The server isn't in this agent's inventory, or systemd doesn't know
+  // its unit: nothing was ever logged.
+  LOG_CODE_NO_LOG = 1;
+  // The helper couldn't be asked, or failed.
+  LOG_CODE_UNAVAILABLE = 2;
 }
 
 // A server created after the hello (6c-2). The controller sends it before

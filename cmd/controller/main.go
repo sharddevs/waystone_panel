@@ -374,6 +374,8 @@ func run(args []string, stderr io.Writer) int {
 		svcCfg.OnOperation = func(op store.Operation) { link.Kick(op.NodeID) }
 		// A revocation cuts the node's live stream at once (D5).
 		svcCfg.OnNodeRevoked = link.Revoke
+		// Logs are read through the same session (7a).
+		svcCfg.ReadLog = link.ReadLog
 		svcCfg.AgentLink = enrollAt
 	}
 	// One service for both sockets (5b, Q1): the same handlers and one

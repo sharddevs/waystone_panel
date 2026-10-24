@@ -12,9 +12,10 @@ import (
 
 // Router passes each validated Command to whatever performs it. A nil field
 // means this helper doesn't do those actions at all: the runtime helper only
-// has Systemd, and the provisioning helper has no Systemd.
+// has Systemd and Journal, and the provisioning helper has neither.
 type Router struct {
 	Systemd     *Systemd
+	Journal     *Journal
 	Provisioner *Provisioner
 	Worker      *Worker
 }
@@ -119,6 +120,31 @@ func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 
 		return r.Systemd.Handle(ctx, cmd)
 
+	case helperv1.Action_ACTION_READ_LOG:
+		if r.Journal == nil {
+			return &helperv1.Response{
+				ErrorCode:    helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST,
+				ErrorMessage: "log reads are not supported by this helper",
+			}
+		}
+
+		log, err := r.Journal.Read(ctx, cmd)
+		if err != nil {
+			code := helperv1.ErrorCode_ERROR_CODE_FAILED
+			switch {
+			case errors.Is(err, ErrInvalidRequest):
+				code = helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST
+			case errors.Is(err, ErrTooManyReads):
+				code = helperv1.ErrorCode_ERROR_CODE_CONFLICT
+			}
+			return &helperv1.Response{
+				ErrorCode:    code,
+				ErrorMessage: err.Error(),
+			}
+		}
+
+		return &helperv1.Response{Log: log}
+
 	default:
 		return &helperv1.Response{
 			ErrorCode:    helperv1.ErrorCode_ERROR_CODE_INVALID_REQUEST,
@@ -130,7 +156,7 @@ func (r Router) Handle(ctx context.Context, cmd Command) *helperv1.Response {
 // The roles waystone-helper can run in, picked with its -role flag. Each
 // role is its own systemd service with its own socket.
 const (
-	RoleRuntime   = "runtime"   // waystone-helper.service: START, STOP, STATUS
+	RoleRuntime   = "runtime"   // waystone-helper.service: START, STOP, STATUS, READ_LOG
 	RoleProvision = "provision" // waystone-provisioner.service: PROVISION, file actions
 )
 
@@ -141,6 +167,9 @@ func NewRouter(role string, runner Runners) (Router, error) {
 	case RoleRuntime:
 		return Router{
 			Systemd: &Systemd{
+				Runner: runner,
+			},
+			Journal: &Journal{
 				Runner: runner,
 			},
 		}, nil

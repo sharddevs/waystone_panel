@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApiError, isServerAction, type Dimension, type Operation, type PageAction, type Server, type ServerAction } from '../api'
+import { ServerLog } from '../components/ServerLog'
 import { StatusLine } from '../components/StatusMark'
 import { actionName, ago, errorText, formatTime, gameLine, isActive, outcome, stateMark, stateWords, took } from '../format'
 import { useLive } from '../live'
@@ -30,7 +31,8 @@ export function ServerPageRoute() {
   return <ServerPage key={id} id={id} />
 }
 
-// The server page (wireframes §3, server page §1-§5).
+// The server page (wireframes §3, server page §1-§5), with the log
+// (7a).
 export function ServerPage({ id }: { id: string }) {
   const { client, session, expired } = useSignedIn()
   const [step, setStep] = useState(0)
@@ -152,6 +154,8 @@ export function ServerPage({ id }: { id: string }) {
       </div>
 
       <div aria-live="polite">{active && <ActiveLine op={active} now={now} />}</div>
+
+      <ServerLog serverId={s.id} />
 
       <section className="history" aria-labelledby="history-title">
         <h2 id="history-title" className="section-title">

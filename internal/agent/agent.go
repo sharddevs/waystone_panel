@@ -432,7 +432,8 @@ func (a *Agent) session(ctx context.Context) (healthy bool, err error) {
 	}
 }
 
-// command handles one message from the controller after the hello. A
+// command handles one message from the controller after the hello: a
+// ServerAdded, a log read (logs.go), or a command. A
 // server outside the inventory is answered FAILED UNKNOWN_SERVER at once,
 // without asking the helper (F14). An accepted command runs on its own
 // goroutine, so a slow stop doesn't hold up the others.
@@ -446,6 +447,9 @@ func (a *Agent) command(m *agentv1.ConnectResponse, cmds *commands, deliver func
 		}
 		a.logf("agent=server_added server=%s port=%d", added.GetServerId(), added.GetGamePort())
 		return nil
+	}
+	if req := m.GetLogRequest(); req != nil {
+		return a.logRequest(req, cmds, deliver)
 	}
 	cmd := m.GetCommand()
 	if cmd == nil {

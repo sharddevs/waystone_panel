@@ -827,3 +827,47 @@ a.button {
     grid-area: meta;
   }
 }
+
+/* The server log (7a). */
+.log-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--pad);
+}
+.log-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  height: 22em;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.45;
+}
+.log-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.log-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+.log-time {
+  color: var(--fg-3);
+}
+.log-warn .log-text {
+  color: var(--warn);
+}
+.log-bad .log-text {
+  color: var(--bad);
+}
+@media (max-width: 600px) {
+  .log-box {
+    height: 60vh;
+    font-size: 0.8em;
+  }
+}

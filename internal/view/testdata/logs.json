@@ -1,0 +1,41 @@
+{
+  "lines": [
+    {
+      "time": "2026-10-16T11:59:00Z",
+      "priority": 6,
+      "text": "Started waystone-srv-0199e1a0-0000-7000-8000-000000000a01.service - Waystone game server 0199e1a0-0000-7000-8000-000000000a01."
+    },
+    {
+      "time": "2026-10-16T11:59:01Z",
+      "priority": 6,
+      "text": "[11:59:01] [ServerMain/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com]"
+    },
+    {
+      "time": "2026-10-16T11:59:02.25Z",
+      "priority": 6,
+      "text": "[11:59:02] [Server thread/INFO]: Starting minecraft server version 26.3"
+    },
+    {
+      "time": "2026-10-16T11:59:02.5Z",
+      "priority": 4,
+      "text": "[11:59:02] [Server thread/WARN]: Can't keep up! Is the server overloaded?"
+    },
+    {
+      "time": "2026-10-16T11:59:07.75Z",
+      "priority": 6,
+      "text": "[11:59:07] [Server thread/INFO]: Preparing spawn area:\t87%"
+    },
+    {
+      "time": "2026-10-16T11:59:10Z",
+      "priority": 6,
+      "text": "[11:59:10] [Server thread/INFO]: Done (8.412s)! For help, type \"help\""
+    },
+    {
+      "time": "2026-10-16T11:59:13Z",
+      "priority": 6,
+      "text": "[11:59:13] [Server thread/INFO]: �[33mSteve joined the game�[0m"
+    }
+  ],
+  "cursor": "s=0123456789abcdef0123456789abcdef;i=1a2;b=fedcba9876543210fedcba9876543210;m=9f;t=5f1e2d3c4b5a6;x=77aa",
+  "more": false
+}

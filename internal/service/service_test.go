@@ -335,8 +335,8 @@ func TestAuthorize(t *testing.T) {
 }
 
 // Routes is exactly the stage 4 route table plus the Nodes API (6b) and
-// create, install and the EULA (6c), so both sockets mount the same
-// sixteen routes.
+// create, install and the EULA (6c) and the log (7a), so both sockets
+// mount the same seventeen routes.
 func TestRoutes(t *testing.T) {
 	var got []string
 	for _, rt := range New(Config{Log: discardLogger()}).Routes() {
@@ -349,6 +349,7 @@ func TestRoutes(t *testing.T) {
 		"GET /api/v1/servers",
 		"POST /api/v1/servers",
 		"GET /api/v1/servers/{id}",
+		"GET /api/v1/servers/{id}/logs",
 		"POST /api/v1/servers/{id}/start",
 		"POST /api/v1/servers/{id}/stop",
 		"POST /api/v1/servers/{id}/restart",

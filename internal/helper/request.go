@@ -24,6 +24,7 @@ type Command struct {
 	Action      helperv1.Action
 	Spec        Spec
 	File        FileCommand
+	Log         LogCommand
 	// NotAfter is the sender's deadline for START and STOP, zero for every
 	// other action. The action must not begin after it.
 	NotAfter time.Time
@@ -64,8 +65,13 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 			return Command{}, fmt.Errorf("%w: unexpected deadline", ErrInvalidRequest)
 		}
 	}
+	// Only READ_LOG carries a log spec.
+	if req.GetLog() != nil && req.GetAction() != helperv1.Action_ACTION_READ_LOG {
+		return Command{}, fmt.Errorf("%w: unexpected log spec", ErrInvalidRequest)
+	}
 	var spec Spec
 	var file FileCommand
+	var logSpec LogCommand
 	switch req.GetAction() {
 	case helperv1.Action_ACTION_START,
 		helperv1.Action_ACTION_STOP,
@@ -104,6 +110,15 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 		if err != nil {
 			return Command{}, err
 		}
+	case helperv1.Action_ACTION_READ_LOG:
+		if req.GetProvision() != nil || req.GetFile() != nil {
+			return Command{}, fmt.Errorf("%w: unexpected spec", ErrInvalidRequest)
+		}
+		var err error
+		logSpec, err = ValidateLogSpec(req.GetLog())
+		if err != nil {
+			return Command{}, err
+		}
 	default:
 		return Command{}, fmt.Errorf("%w: unsupported action", ErrInvalidRequest)
 	}
@@ -113,6 +128,7 @@ func ValidateRequest(req *helperv1.Request) (Command, error) {
 		Action:      req.GetAction(),
 		Spec:        spec,
 		File:        file,
+		Log:         logSpec,
 		NotAfter:    notAfter,
 	}, nil
 }

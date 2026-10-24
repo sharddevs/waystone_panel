@@ -34,6 +34,19 @@ enum Action {
   // agent owns the files it installs. Game-neutral like the other file
   // actions; the profile picks the name.
   ACTION_INSTALL_FILE = 7;
+  // Read the newest lines of the server's log from journald (stage 7a).
+  // Read-only. The helper builds journalctl's arguments itself; only the
+  // cursor and the count come from LogSpec.
+  ACTION_READ_LOG = 8;
+}
+
+// Which lines ACTION_READ_LOG reads.
+message LogSpec {
+  // Empty: the newest lines. Otherwise a journald cursor, and the lines
+  // right after it, oldest first. Checked like serverlog.ValidCursor.
+  string after_cursor = 1;
+  // 1 to 200.
+  uint32 limit = 2;
 }
 
 // What a new server needs. Names and numbers only: the helper turns the
@@ -63,6 +76,8 @@ message Request {
   // helper's queue can't run after its sender has given up on it (stage
   // 4c, S3).
   int64 not_after_unix_ms = 6;
+  // Required for ACTION_READ_LOG and refused for every other action.
+  LogSpec log = 7;
 }
 
 // One file directly inside the server's directory.
@@ -129,6 +144,25 @@ message Response {
   bool changed = 5;
   // Set only for ACTION_READ_FILE.
   FileResult file = 6;
+  // Set only for ACTION_READ_LOG.
+  LogResult log = 7;
+}
+
+// The lines ACTION_READ_LOG found, oldest first, each already cleaned
+// (serverlog.Clean). Their text is at most 48 KiB in all.
+message LogResult {
+  repeated LogLine lines = 1;
+  // The newest line's cursor, empty when there are no lines.
+  string cursor = 2;
+  // More lines follow the cursor already: read again from it.
+  bool more = 3;
+}
+
+message LogLine {
+  int64 time_unix_micro = 1;
+  // syslog's 0 to 7.
+  uint32 priority = 2;
+  string text = 3;
 }
 
 message FileResult {

@@ -52,6 +52,7 @@ type commands struct {
 	inventory []string          // in the hello's order, then as added
 	ports     map[string]uint32 // the game port of each server that has one
 	inflight  map[string]string // operation ID -> server ID
+	reads     int               // log reads out (7a)
 }
 
 func newCommands(epoch int64, serverIDs []string, ports map[string]uint32) *commands {

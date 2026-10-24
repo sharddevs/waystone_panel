@@ -111,6 +111,8 @@ type Config struct {
 	HelloTimeout     time.Duration                  // HelloTimeout
 	ReportInterval   time.Duration                  // ReportInterval; whole seconds
 	UnpinnedLifetime time.Duration                  // UnpinnedLifetime
+	LogTimeout       time.Duration                  // LogTimeout
+	LogGap           time.Duration                  // LogGap
 
 	// Crash-point hooks for tests (4c, F2 and S2). nil in production.
 	// TestBeforeClaim runs inside the claim transaction; an error rolls
@@ -151,6 +153,8 @@ type Server struct {
 	now            func() time.Time
 	helloTimeout   time.Duration
 	reportInterval time.Duration
+	logTimeout     time.Duration
+	logGap         time.Duration
 
 	grpc    *grpc.Server // agent.sock; nil without one
 	grpcTCP *grpc.Server // the TCP listener; nil without one
@@ -200,6 +204,8 @@ func New(cfg Config) (*Server, error) {
 		now:            cfg.Now,
 		helloTimeout:   cfg.HelloTimeout,
 		reportInterval: cfg.ReportInterval,
+		logTimeout:     cfg.LogTimeout,
+		logGap:         cfg.LogGap,
 		sessions:       newSessions(),
 		churn:          newChurn(),
 		slots:          newSlots(MaxUnpinnedPerIP, MaxHandshaking, MaxEnrollOnly, MaxPinned),
@@ -232,6 +238,12 @@ func New(cfg Config) (*Server, error) {
 	}
 	if s.reportInterval == 0 {
 		s.reportInterval = ReportInterval
+	}
+	if s.logTimeout == 0 {
+		s.logTimeout = LogTimeout
+	}
+	if s.logGap == 0 {
+		s.logGap = LogGap
 	}
 	if s.reportInterval < time.Second || s.reportInterval%time.Second != 0 {
 		return nil, errors.New("agent link: report interval must be whole seconds")
@@ -496,9 +508,11 @@ func (s *Server) connect(stream agentv1.AgentLinkService_ConnectServer) error {
 	// From here on only the dispatcher sends (S2). The handler waits for
 	// it before returning, so nothing is sent on a finished stream.
 	d := newDispatcher(s, epoch, stream, serverIDs)
-	s.sessions.setKick(s.nodeID, epoch, d.signal)
-	d.signal() // claim right after the hello (Q7)
 	dispCtx, stopDispatch := context.WithCancel(sessCtx)
+	d.ended = dispCtx.Done()
+	s.sessions.setKick(s.nodeID, epoch, d.signal)
+	s.sessions.setLogReader(s.nodeID, epoch, d.readLog)
+	d.signal() // claim right after the hello (Q7)
 	dispErr := make(chan error, 1)
 	var dispDone sync.WaitGroup
 	dispDone.Go(func() { dispErr <- d.run(dispCtx) })
@@ -549,6 +563,8 @@ func (s *Server) message(ctx context.Context, d *dispatcher, lastSeq *int64, m *
 		return d.result(ctx, m.GetResult())
 	case m.GetProgress() != nil:
 		return d.progress(ctx, m.GetProgress())
+	case m.GetLogChunk() != nil:
+		return d.logChunk(m.GetLogChunk())
 	case m.GetHello() != nil:
 		return s.refuse(codes.FailedPrecondition, "unexpected_hello")
 	}

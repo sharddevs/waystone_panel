@@ -3,10 +3,13 @@
 package service
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/sharddevs/waystone_panel/internal/serverlog"
 	"github.com/sharddevs/waystone_panel/internal/store"
 )
 
@@ -65,5 +68,23 @@ func TestPermits(t *testing.T) {
 		if permits("node")(a) {
 			t.Errorf("role node may %s", a)
 		}
+	}
+}
+
+// 7a: each way a log read fails has its code.
+func TestLogError(t *testing.T) {
+	cases := map[error]string{
+		serverlog.ErrUnreachable:               CodeNodeUnreachable,
+		fmt.Errorf("x: %w", serverlog.ErrBusy): CodeControllerBusy,
+		serverlog.ErrUnavailable:               CodeLogsUnavailable,
+		errors.New("anything else"):            CodeInternal,
+	}
+	for err, want := range cases {
+		if got := logError(err); got.code != want || !errors.Is(got, err) {
+			t.Errorf("%v: %s, want %s with the cause kept", err, got.code, want)
+		}
+	}
+	if CodeLogsUnavailable != "logs_unavailable" || errorInfo[CodeLogsUnavailable].status != http.StatusServiceUnavailable {
+		t.Errorf("logs_unavailable = %q %d", CodeLogsUnavailable, errorInfo[CodeLogsUnavailable].status)
 	}
 }

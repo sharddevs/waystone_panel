@@ -5,6 +5,8 @@ package agentlink
 import (
 	"context"
 	"sync"
+
+	"github.com/sharddevs/waystone_panel/internal/serverlog"
 )
 
 // sessions holds the live session of each node (R1): its epoch and the
@@ -23,7 +25,11 @@ type session struct {
 	epoch  int64
 	cancel context.CancelCauseFunc
 	kick   func() // wakes the session's dispatcher (4c); nil until set
+	logs   logReader
 }
+
+// logReader reads a server's log through one session (7a).
+type logReader func(ctx context.Context, serverID, after string, limit int) (serverlog.Page, error)
 
 func newSessions() *sessions {
 	return &sessions{live: make(map[string]session)}
@@ -96,4 +102,22 @@ func (s *sessions) kick(node string) {
 	if k != nil {
 		k()
 	}
+}
+
+// setLogReader attaches the dispatcher's log reads to node's session, if
+// it is still epoch.
+func (s *sessions) setLogReader(node string, epoch int64, read logReader) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur, ok := s.live[node]; ok && cur.epoch == epoch {
+		cur.logs = read
+		s.live[node] = cur
+	}
+}
+
+// logReader returns node's live session's log reads, or nil.
+func (s *sessions) logReader(node string) logReader {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.live[node].logs
 }

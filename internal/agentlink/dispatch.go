@@ -49,6 +49,15 @@ type dispatcher struct {
 	// known is the agent's inventory: the hello's servers, and every
 	// ServerAdded since (6c-2). Only the dispatcher uses it.
 	known map[string]bool
+
+	// Log reads (7a, logs.go): logOut hands a read to the dispatcher to
+	// send; reads holds every read asked and not yet answered, and
+	// servers each server's flight (H1), both under mu; ended closes when
+	// the session does.
+	logOut  chan *logRead
+	reads   map[string]*logRead
+	servers map[string]*serverReads
+	ended   <-chan struct{}
 }
 
 func newDispatcher(s *Server, epoch int64, stream agentv1.AgentLinkService_ConnectServer, serverIDs []string) *dispatcher {
@@ -59,6 +68,9 @@ func newDispatcher(s *Server, epoch int64, stream agentv1.AgentLinkService_Conne
 		wake:     make(chan struct{}, 1),
 		inflight: make(map[string]*sentOp),
 		known:    make(map[string]bool, len(serverIDs)),
+		logOut:   make(chan *logRead),
+		reads:    make(map[string]*logRead),
+		servers:  make(map[string]*serverReads),
 	}
 	for _, id := range serverIDs {
 		d.known[id] = true
@@ -78,13 +90,19 @@ func (d *dispatcher) signal() {
 // running, and the next hello or the startup recovery makes it uncertain.
 var errSendFailed = errors.New("send failed")
 
-// run waits for signals and claims until ctx ends. Its error ends the
-// session: a superseded session, or a broken stream.
+// run waits for signals and claims until ctx ends, and sends the log
+// reads it is handed. Its error ends the session: a superseded session,
+// or a broken stream.
 func (d *dispatcher) run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+		case r := <-d.logOut:
+			if err := d.sendLog(r); err != nil {
+				return err
+			}
+			continue
 		case <-d.wake:
 		}
 		if err := d.drain(ctx); err != nil {

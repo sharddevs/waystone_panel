@@ -54,6 +54,10 @@ const (
 	// agent owns the files it installs. Game-neutral like the other file
 	// actions; the profile picks the name.
 	Action_ACTION_INSTALL_FILE Action = 7
+	// Read the newest lines of the server's log from journald (stage 7a).
+	// Read-only. The helper builds journalctl's arguments itself; only the
+	// cursor and the count come from LogSpec.
+	Action_ACTION_READ_LOG Action = 8
 )
 
 // Enum value maps for Action.
@@ -67,6 +71,7 @@ var (
 		5: "ACTION_READ_FILE",
 		6: "ACTION_WRITE_FILE",
 		7: "ACTION_INSTALL_FILE",
+		8: "ACTION_READ_LOG",
 	}
 	Action_value = map[string]int32{
 		"ACTION_UNSPECIFIED":  0,
@@ -77,6 +82,7 @@ var (
 		"ACTION_READ_FILE":    5,
 		"ACTION_WRITE_FILE":   6,
 		"ACTION_INSTALL_FILE": 7,
+		"ACTION_READ_LOG":     8,
 	}
 )
 
@@ -240,6 +246,62 @@ func (RunState) EnumDescriptor() ([]byte, []int) {
 	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{2}
 }
 
+// Which lines ACTION_READ_LOG reads.
+type LogSpec struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty: the newest lines. Otherwise a journald cursor, and the lines
+	// right after it, oldest first. Checked like serverlog.ValidCursor.
+	AfterCursor string `protobuf:"bytes,1,opt,name=after_cursor,json=afterCursor,proto3" json:"after_cursor,omitempty"`
+	// 1 to 200.
+	Limit         uint32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogSpec) Reset() {
+	*x = LogSpec{}
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogSpec) ProtoMessage() {}
+
+func (x *LogSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogSpec.ProtoReflect.Descriptor instead.
+func (*LogSpec) Descriptor() ([]byte, []int) {
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *LogSpec) GetAfterCursor() string {
+	if x != nil {
+		return x.AfterCursor
+	}
+	return ""
+}
+
+func (x *LogSpec) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
 // What a new server needs. Names and numbers only: the helper turns the
 // runtime name into a program path itself, from its own allowlist.
 type ProvisionSpec struct {
@@ -254,7 +316,7 @@ type ProvisionSpec struct {
 
 func (x *ProvisionSpec) Reset() {
 	*x = ProvisionSpec{}
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[0]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -266,7 +328,7 @@ func (x *ProvisionSpec) String() string {
 func (*ProvisionSpec) ProtoMessage() {}
 
 func (x *ProvisionSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[0]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -279,7 +341,7 @@ func (x *ProvisionSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionSpec.ProtoReflect.Descriptor instead.
 func (*ProvisionSpec) Descriptor() ([]byte, []int) {
-	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{0}
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *ProvisionSpec) GetRuntime() string {
@@ -315,13 +377,15 @@ type Request struct {
 	// helper's queue can't run after its sender has given up on it (stage
 	// 4c, S3).
 	NotAfterUnixMs int64 `protobuf:"varint,6,opt,name=not_after_unix_ms,json=notAfterUnixMs,proto3" json:"not_after_unix_ms,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Required for ACTION_READ_LOG and refused for every other action.
+	Log           *LogSpec `protobuf:"bytes,7,opt,name=log,proto3" json:"log,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Request) Reset() {
 	*x = Request{}
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[1]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -333,7 +397,7 @@ func (x *Request) String() string {
 func (*Request) ProtoMessage() {}
 
 func (x *Request) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[1]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -346,7 +410,7 @@ func (x *Request) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Request.ProtoReflect.Descriptor instead.
 func (*Request) Descriptor() ([]byte, []int) {
-	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{1}
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Request) GetOperationId() string {
@@ -391,6 +455,13 @@ func (x *Request) GetNotAfterUnixMs() int64 {
 	return 0
 }
 
+func (x *Request) GetLog() *LogSpec {
+	if x != nil {
+		return x.Log
+	}
+	return nil
+}
+
 // One file directly inside the server's directory.
 type FileSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -414,7 +485,7 @@ type FileSpec struct {
 
 func (x *FileSpec) Reset() {
 	*x = FileSpec{}
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -426,7 +497,7 @@ func (x *FileSpec) String() string {
 func (*FileSpec) ProtoMessage() {}
 
 func (x *FileSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[2]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -439,7 +510,7 @@ func (x *FileSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileSpec.ProtoReflect.Descriptor instead.
 func (*FileSpec) Descriptor() ([]byte, []int) {
-	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{2}
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *FileSpec) GetName() string {
@@ -490,14 +561,16 @@ type Response struct {
 	// on the machine, false if everything was already in place.
 	Changed bool `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
 	// Set only for ACTION_READ_FILE.
-	File          *FileResult `protobuf:"bytes,6,opt,name=file,proto3" json:"file,omitempty"`
+	File *FileResult `protobuf:"bytes,6,opt,name=file,proto3" json:"file,omitempty"`
+	// Set only for ACTION_READ_LOG.
+	Log           *LogResult `protobuf:"bytes,7,opt,name=log,proto3" json:"log,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[3]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -509,7 +582,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[3]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -522,7 +595,7 @@ func (x *Response) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Response.ProtoReflect.Descriptor instead.
 func (*Response) Descriptor() ([]byte, []int) {
-	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{3}
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Response) GetErrorCode() ErrorCode {
@@ -567,6 +640,138 @@ func (x *Response) GetFile() *FileResult {
 	return nil
 }
 
+func (x *Response) GetLog() *LogResult {
+	if x != nil {
+		return x.Log
+	}
+	return nil
+}
+
+// The lines ACTION_READ_LOG found, oldest first, each already cleaned
+// (serverlog.Clean). Their text is at most 48 KiB in all.
+type LogResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Lines []*LogLine             `protobuf:"bytes,1,rep,name=lines,proto3" json:"lines,omitempty"`
+	// The newest line's cursor, empty when there are no lines.
+	Cursor string `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	// More lines follow the cursor already: read again from it.
+	More          bool `protobuf:"varint,3,opt,name=more,proto3" json:"more,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogResult) Reset() {
+	*x = LogResult{}
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogResult) ProtoMessage() {}
+
+func (x *LogResult) ProtoReflect() protoreflect.Message {
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogResult.ProtoReflect.Descriptor instead.
+func (*LogResult) Descriptor() ([]byte, []int) {
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *LogResult) GetLines() []*LogLine {
+	if x != nil {
+		return x.Lines
+	}
+	return nil
+}
+
+func (x *LogResult) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+func (x *LogResult) GetMore() bool {
+	if x != nil {
+		return x.More
+	}
+	return false
+}
+
+type LogLine struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TimeUnixMicro int64                  `protobuf:"varint,1,opt,name=time_unix_micro,json=timeUnixMicro,proto3" json:"time_unix_micro,omitempty"`
+	// syslog's 0 to 7.
+	Priority      uint32 `protobuf:"varint,2,opt,name=priority,proto3" json:"priority,omitempty"`
+	Text          string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogLine) Reset() {
+	*x = LogLine{}
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogLine) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogLine) ProtoMessage() {}
+
+func (x *LogLine) ProtoReflect() protoreflect.Message {
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
+func (*LogLine) Descriptor() ([]byte, []int) {
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *LogLine) GetTimeUnixMicro() int64 {
+	if x != nil {
+		return x.TimeUnixMicro
+	}
+	return 0
+}
+
+func (x *LogLine) GetPriority() uint32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
+}
+
+func (x *LogLine) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
 type FileResult struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// False if the file does not exist; content is then empty.
@@ -578,7 +783,7 @@ type FileResult struct {
 
 func (x *FileResult) Reset() {
 	*x = FileResult{}
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[4]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -590,7 +795,7 @@ func (x *FileResult) String() string {
 func (*FileResult) ProtoMessage() {}
 
 func (x *FileResult) ProtoReflect() protoreflect.Message {
-	mi := &file_waystone_helper_v1_helper_proto_msgTypes[4]
+	mi := &file_waystone_helper_v1_helper_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -603,7 +808,7 @@ func (x *FileResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileResult.ProtoReflect.Descriptor instead.
 func (*FileResult) Descriptor() ([]byte, []int) {
-	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{4}
+	return file_waystone_helper_v1_helper_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *FileResult) GetExists() bool {
@@ -624,23 +829,27 @@ var File_waystone_helper_v1_helper_proto protoreflect.FileDescriptor
 
 const file_waystone_helper_v1_helper_proto_rawDesc = "" +
 	"\n" +
-	"\x1fwaystone/helper/v1/helper.proto\x12\x12waystone.helper.v1\"D\n" +
+	"\x1fwaystone/helper/v1/helper.proto\x12\x12waystone.helper.v1\"B\n" +
+	"\aLogSpec\x12!\n" +
+	"\fafter_cursor\x18\x01 \x01(\tR\vafterCursor\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\"D\n" +
 	"\rProvisionSpec\x12\x18\n" +
 	"\aruntime\x18\x01 \x01(\tR\aruntime\x12\x19\n" +
-	"\bheap_mib\x18\x02 \x01(\rR\aheapMib\"\x9b\x02\n" +
+	"\bheap_mib\x18\x02 \x01(\rR\aheapMib\"\xca\x02\n" +
 	"\aRequest\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12\x1b\n" +
 	"\tserver_id\x18\x02 \x01(\tR\bserverId\x122\n" +
 	"\x06action\x18\x03 \x01(\x0e2\x1a.waystone.helper.v1.ActionR\x06action\x12?\n" +
 	"\tprovision\x18\x04 \x01(\v2!.waystone.helper.v1.ProvisionSpecR\tprovision\x120\n" +
 	"\x04file\x18\x05 \x01(\v2\x1c.waystone.helper.v1.FileSpecR\x04file\x12)\n" +
-	"\x11not_after_unix_ms\x18\x06 \x01(\x03R\x0enotAfterUnixMs\"\xa9\x01\n" +
+	"\x11not_after_unix_ms\x18\x06 \x01(\x03R\x0enotAfterUnixMs\x12-\n" +
+	"\x03log\x18\a \x01(\v2\x1b.waystone.helper.v1.LogSpecR\x03log\"\xa9\x01\n" +
 	"\bFileSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12#\n" +
 	"\rexpect_absent\x18\x03 \x01(\bR\fexpectAbsent\x12#\n" +
 	"\rexpect_sha256\x18\x04 \x01(\fR\fexpectSha256\x12%\n" +
-	"\x0econtent_sha256\x18\x05 \x01(\fR\rcontentSha256\"\x99\x02\n" +
+	"\x0econtent_sha256\x18\x05 \x01(\fR\rcontentSha256\"\xca\x02\n" +
 	"\bResponse\x12<\n" +
 	"\n" +
 	"error_code\x18\x01 \x01(\x0e2\x1d.waystone.helper.v1.ErrorCodeR\terrorCode\x12#\n" +
@@ -648,11 +857,20 @@ const file_waystone_helper_v1_helper_proto_rawDesc = "" +
 	"\trun_state\x18\x03 \x01(\x0e2\x1c.waystone.helper.v1.RunStateR\brunState\x12!\n" +
 	"\fnative_state\x18\x04 \x01(\tR\vnativeState\x12\x18\n" +
 	"\achanged\x18\x05 \x01(\bR\achanged\x122\n" +
-	"\x04file\x18\x06 \x01(\v2\x1e.waystone.helper.v1.FileResultR\x04file\">\n" +
+	"\x04file\x18\x06 \x01(\v2\x1e.waystone.helper.v1.FileResultR\x04file\x12/\n" +
+	"\x03log\x18\a \x01(\v2\x1d.waystone.helper.v1.LogResultR\x03log\"j\n" +
+	"\tLogResult\x121\n" +
+	"\x05lines\x18\x01 \x03(\v2\x1b.waystone.helper.v1.LogLineR\x05lines\x12\x16\n" +
+	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12\x12\n" +
+	"\x04more\x18\x03 \x01(\bR\x04more\"a\n" +
+	"\aLogLine\x12&\n" +
+	"\x0ftime_unix_micro\x18\x01 \x01(\x03R\rtimeUnixMicro\x12\x1a\n" +
+	"\bpriority\x18\x02 \x01(\rR\bpriority\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\">\n" +
 	"\n" +
 	"FileResult\x12\x16\n" +
 	"\x06exists\x18\x01 \x01(\bR\x06exists\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\fR\acontent*\xb2\x01\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent*\xc7\x01\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fACTION_START\x10\x01\x12\x0f\n" +
@@ -661,7 +879,8 @@ const file_waystone_helper_v1_helper_proto_rawDesc = "" +
 	"\x10ACTION_PROVISION\x10\x04\x12\x14\n" +
 	"\x10ACTION_READ_FILE\x10\x05\x12\x15\n" +
 	"\x11ACTION_WRITE_FILE\x10\x06\x12\x17\n" +
-	"\x13ACTION_INSTALL_FILE\x10\a*\xcb\x01\n" +
+	"\x13ACTION_INSTALL_FILE\x10\a\x12\x13\n" +
+	"\x0fACTION_READ_LOG\x10\b*\xcb\x01\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cERROR_CODE_PERMISSION_DENIED\x10\x01\x12\x1e\n" +
@@ -691,29 +910,35 @@ func file_waystone_helper_v1_helper_proto_rawDescGZIP() []byte {
 }
 
 var file_waystone_helper_v1_helper_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_waystone_helper_v1_helper_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_waystone_helper_v1_helper_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_waystone_helper_v1_helper_proto_goTypes = []any{
 	(Action)(0),           // 0: waystone.helper.v1.Action
 	(ErrorCode)(0),        // 1: waystone.helper.v1.ErrorCode
 	(RunState)(0),         // 2: waystone.helper.v1.RunState
-	(*ProvisionSpec)(nil), // 3: waystone.helper.v1.ProvisionSpec
-	(*Request)(nil),       // 4: waystone.helper.v1.Request
-	(*FileSpec)(nil),      // 5: waystone.helper.v1.FileSpec
-	(*Response)(nil),      // 6: waystone.helper.v1.Response
-	(*FileResult)(nil),    // 7: waystone.helper.v1.FileResult
+	(*LogSpec)(nil),       // 3: waystone.helper.v1.LogSpec
+	(*ProvisionSpec)(nil), // 4: waystone.helper.v1.ProvisionSpec
+	(*Request)(nil),       // 5: waystone.helper.v1.Request
+	(*FileSpec)(nil),      // 6: waystone.helper.v1.FileSpec
+	(*Response)(nil),      // 7: waystone.helper.v1.Response
+	(*LogResult)(nil),     // 8: waystone.helper.v1.LogResult
+	(*LogLine)(nil),       // 9: waystone.helper.v1.LogLine
+	(*FileResult)(nil),    // 10: waystone.helper.v1.FileResult
 }
 var file_waystone_helper_v1_helper_proto_depIdxs = []int32{
-	0, // 0: waystone.helper.v1.Request.action:type_name -> waystone.helper.v1.Action
-	3, // 1: waystone.helper.v1.Request.provision:type_name -> waystone.helper.v1.ProvisionSpec
-	5, // 2: waystone.helper.v1.Request.file:type_name -> waystone.helper.v1.FileSpec
-	1, // 3: waystone.helper.v1.Response.error_code:type_name -> waystone.helper.v1.ErrorCode
-	2, // 4: waystone.helper.v1.Response.run_state:type_name -> waystone.helper.v1.RunState
-	7, // 5: waystone.helper.v1.Response.file:type_name -> waystone.helper.v1.FileResult
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	0,  // 0: waystone.helper.v1.Request.action:type_name -> waystone.helper.v1.Action
+	4,  // 1: waystone.helper.v1.Request.provision:type_name -> waystone.helper.v1.ProvisionSpec
+	6,  // 2: waystone.helper.v1.Request.file:type_name -> waystone.helper.v1.FileSpec
+	3,  // 3: waystone.helper.v1.Request.log:type_name -> waystone.helper.v1.LogSpec
+	1,  // 4: waystone.helper.v1.Response.error_code:type_name -> waystone.helper.v1.ErrorCode
+	2,  // 5: waystone.helper.v1.Response.run_state:type_name -> waystone.helper.v1.RunState
+	10, // 6: waystone.helper.v1.Response.file:type_name -> waystone.helper.v1.FileResult
+	8,  // 7: waystone.helper.v1.Response.log:type_name -> waystone.helper.v1.LogResult
+	9,  // 8: waystone.helper.v1.LogResult.lines:type_name -> waystone.helper.v1.LogLine
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_waystone_helper_v1_helper_proto_init() }
@@ -727,7 +952,7 @@ func file_waystone_helper_v1_helper_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_waystone_helper_v1_helper_proto_rawDesc), len(file_waystone_helper_v1_helper_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   5,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

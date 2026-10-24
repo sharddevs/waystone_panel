@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   decodeCreatedServer,
   decodeEnrollmentList,
+  decodeLogPage,
   decodeErrorBody,
   decodeNewEnrollment,
   decodeNode,
@@ -32,6 +33,8 @@ const files: [string, Decoder<unknown>][] = [
   ['internal/view/testdata/enrollments.json', decodeEnrollmentList],
   ['internal/view/testdata/enrollment_new.json', decodeNewEnrollment],
   ['internal/view/testdata/created.json', decodeCreatedServer],
+  ['internal/view/testdata/logs.json', decodeLogPage],
+  ['internal/view/testdata/logs_empty.json', decodeLogPage],
   ['internal/service/testdata/error.json', decodeErrorBody],
   ['internal/web/testdata/error.json', decodeErrorBody],
   ['internal/session/testdata/session.json', decodeSession],

@@ -163,6 +163,8 @@ export function errorText(e: unknown): string {
       return 'Another server on this node already uses that port.'
     case 'node_full':
       return 'This node already has as many servers as it can manage.'
+    case 'logs_unavailable':
+      return "The node couldn't read the server's log just now."
     case 'enrollment_unavailable':
       return "Waystone isn't listening for other machines, so it can't add a node yet."
     case 'bad_request':

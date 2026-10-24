@@ -30,9 +30,31 @@ func (f *fakeInputRunner) RunInput(_ context.Context, argv []string, stdin io.Re
 	return []byte(f.output), f.err
 }
 
-// fakeRunners embeds both fakes, so it gets both methods and can be passed
-// to NewRouter as either kind of runner.
+// fakeCappedRunner records RunCapped calls and returns output, capped
+// at max like the real one.
+type fakeCappedRunner struct {
+	calls  [][]string
+	maxes  []int
+	output string
+	err    error
+}
+
+func (f *fakeCappedRunner) RunCapped(_ context.Context, argv []string, max int) ([]byte, bool, error) {
+	f.calls = append(f.calls, slices.Clone(argv))
+	f.maxes = append(f.maxes, max)
+	if f.err != nil {
+		return nil, false, f.err
+	}
+	if len(f.output) > max {
+		return []byte(f.output[:max]), true, nil
+	}
+	return []byte(f.output), false, nil
+}
+
+// fakeRunners embeds every fake, so it gets every method and can be
+// passed to NewRouter as any kind of runner.
 type fakeRunners struct {
 	fakeRunner
 	fakeInputRunner
+	fakeCappedRunner
 }

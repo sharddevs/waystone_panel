@@ -39,6 +39,9 @@ type Config struct {
 	// controller uses it to cut the node's live stream (D5). It must not
 	// block.
 	OnNodeRevoked func(nodeID string)
+	// ReadLog reads a server's log on its node (7a). Nil means there is
+	// no agent link, and every read is node_unreachable.
+	ReadLog LogReader
 }
 
 // Service holds what the handlers share. One Service serves both
@@ -54,6 +57,7 @@ type Service struct {
 	onOperation   func(store.Operation)
 	agentLink     *AgentLink
 	onNodeRevoked func(string)
+	readLog       LogReader
 }
 
 // New builds the service.
@@ -72,6 +76,7 @@ func New(cfg Config) *Service {
 		onOperation:   cfg.OnOperation,
 		agentLink:     cfg.AgentLink,
 		onNodeRevoked: cfg.OnNodeRevoked,
+		readLog:       cfg.ReadLog,
 	}
 }
 
@@ -100,6 +105,7 @@ func (s *Service) Routes() []Route {
 		{http.MethodGet, "/api/v1/servers", http.HandlerFunc(s.handleListServers)},
 		{http.MethodPost, createRoute, http.HandlerFunc(s.handleCreateServer)},
 		{http.MethodGet, "/api/v1/servers/{id}", http.HandlerFunc(s.handleGetServer)},
+		{http.MethodGet, "/api/v1/servers/{id}/logs", http.HandlerFunc(s.handleServerLogs)},
 		action(store.ActionStart, "start"),
 		action(store.ActionStop, "stop"),
 		action(store.ActionRestart, "restart"),

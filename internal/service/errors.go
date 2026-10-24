@@ -35,6 +35,7 @@ const (
 	CodeEulaNotAccepted            = "eula_not_accepted"
 	CodeAlreadyAccepted            = "already_accepted"
 	CodeNodeFull                   = "node_full"
+	CodeLogsUnavailable            = "logs_unavailable"
 	CodeInternal                   = "internal"
 )
 
@@ -67,6 +68,7 @@ var errorInfo = map[string]struct {
 	CodeEulaNotAccepted:            {http.StatusConflict, "Accept the Minecraft EULA before starting the server."},
 	CodeAlreadyAccepted:            {http.StatusConflict, "The Minecraft EULA has already been accepted for this server."},
 	CodeNodeFull:                   {http.StatusConflict, "This node already has as many servers as it can manage."},
+	CodeLogsUnavailable:            {http.StatusServiceUnavailable, "The server's log couldn't be read just now. Try again shortly."},
 	CodeInternal:                   {http.StatusInternalServerError, "Internal error."},
 }
 

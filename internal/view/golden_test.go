@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharddevs/waystone_panel/internal/serverlog"
 	"github.com/sharddevs/waystone_panel/internal/store"
 )
 
@@ -176,4 +177,27 @@ func TestGolden(t *testing.T) {
 	golden(t, "enrollments.json", map[string]any{"enrollments": ens})
 	// The bundle here is a placeholder; a real one is base64url JSON.
 	golden(t, "enrollment_new.json", NewEnrollment{Enrollment: ens[0], Bundle: "eyJ2IjoxfQ", Command: EnrollCommand})
+	golden(t, "logs.json", goldenLogs())
+	golden(t, "logs_empty.json", LogPageOf(serverlog.Page{}))
+}
+
+// goldenLogs is a server starting, with a warning, a tab, and a line that
+// held an escape sequence (cleaned to U+FFFD).
+func goldenLogs() LogPage {
+	at := time.Date(2026, 10, 16, 11, 59, 0, 0, time.UTC)
+	line := func(s int, p uint32, text string) serverlog.Line {
+		return serverlog.Line{Time: at.Add(time.Duration(s) * 250 * time.Millisecond), Priority: p, Text: text}
+	}
+	return LogPageOf(serverlog.Page{
+		Lines: []serverlog.Line{
+			line(0, 6, "Started waystone-srv-0199e1a0-0000-7000-8000-000000000a01.service - Waystone game server 0199e1a0-0000-7000-8000-000000000a01."),
+			line(4, 6, "[11:59:01] [ServerMain/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com]"),
+			line(9, 6, "[11:59:02] [Server thread/INFO]: Starting minecraft server version 26.3"),
+			line(10, 4, "[11:59:02] [Server thread/WARN]: Can't keep up! Is the server overloaded?"),
+			line(31, 6, "[11:59:07] [Server thread/INFO]: Preparing spawn area:\t87%"),
+			line(40, 6, "[11:59:10] [Server thread/INFO]: Done (8.412s)! For help, type \"help\""),
+			line(52, 6, "[11:59:13] [Server thread/INFO]: \uFFFD[33mSteve joined the game\uFFFD[0m"),
+		},
+		Cursor: "s=0123456789abcdef0123456789abcdef;i=1a2;b=fedcba9876543210fedcba9876543210;m=9f;t=5f1e2d3c4b5a6;x=77aa",
+	})
 }

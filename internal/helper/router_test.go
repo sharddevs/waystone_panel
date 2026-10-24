@@ -109,6 +109,9 @@ func TestNewRouterRuntime(t *testing.T) {
 	if r.Systemd == nil || r.Systemd.Runner != Runner(runners) {
 		t.Errorf("Systemd = %+v, want one using the given runner", r.Systemd)
 	}
+	if r.Journal == nil || r.Journal.Runner != CappedRunner(runners) {
+		t.Errorf("Journal = %+v, want one using the given runner", r.Journal)
+	}
 }
 
 func TestNewRouterProvision(t *testing.T) {
@@ -117,8 +120,8 @@ func TestNewRouterProvision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
-	if r.Systemd != nil {
-		t.Error("the provisioning role must not start, stop or inspect servers")
+	if r.Systemd != nil || r.Journal != nil {
+		t.Error("the provisioning role must not start, stop, inspect servers or read their logs")
 	}
 	p := r.Provisioner
 	if p == nil {
