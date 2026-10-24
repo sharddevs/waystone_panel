@@ -207,8 +207,8 @@ func TestMigration00002(t *testing.T) {
 	if triggers, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
 		t.Fatal(err)
 	}
-	// 00009 adds the insert guard (6c-1).
-	if strings.Join(triggers, ",") != "nodes_guard,servers_insert_guard,servers_report_guard" {
+	// 00009 adds the insert guard (6c-1) and the marks guard (6c-H2).
+	if strings.Join(triggers, ",") != "nodes_guard,servers_insert_guard,servers_marks_guard,servers_report_guard" {
 		t.Errorf("triggers = %v", triggers)
 	}
 

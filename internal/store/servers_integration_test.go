@@ -10,6 +10,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -526,5 +527,122 @@ func TestRunningInstall(t *testing.T) {
 	}
 	if _, err := get(nodeActA, start.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("a stop: %v", err)
+	}
+}
+
+// 6c-H2: only an install or EULA operation on this very server, in its own
+// tenant, marks it, and only with its own column. The app can't write the
+// marks even through a grant.
+func TestServerMarks(t *testing.T) {
+	e := setup(t)
+	s, install, _, err := e.createServer(adminA, newServer("marks", 25565))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.setState(t, install.ID, StateRunning, StateSucceeded)
+	eula, _, err := e.create(adminA, CreateOperationInput{ServerID: s.ID, Action: ActionAcceptEula})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.setState(t, eula.ID, StateRunning, StateSucceeded)
+	start, _, err := e.create(adminA, CreateOperationInput{ServerID: s.ID, Action: ActionStart})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unmark := func() {
+		mustExec(t, e.owner, `UPDATE waystone.servers SET installed_at = NULL, eula_accepted_at = NULL WHERE server_id = $1`, s.ID)
+	}
+	marks := func(what string) {
+		t.Helper()
+		if got, _ := getServer(e, adminA, s.ID); got.Installed || got.EulaAccepted {
+			t.Errorf("%s: installed %v accepted %v", what, got.Installed, got.EulaAccepted)
+		}
+	}
+	unmark()
+	e.setState(t, start.ID, StateRunning, StateSucceeded)
+	marks("a start succeeded")
+
+	// An operation of another tenant naming this server's ID. (Every
+	// operation is about a server today: resource_type has a CHECK.)
+	for name, q := range map[string][]any{
+		"another tenant": {tenantB, "server", nodeB, "server.install"},
+		"eula elsewhere": {tenantB, "server", nodeB, "server.accept_eula"},
+	} {
+		var id string
+		if err := e.owner.QueryRow(context.Background(), `
+			INSERT INTO waystone.operations (tenant_id, operation_id, resource_type, resource_id, node_id,
+				action, state, actor_type, actor_id, actor_name, requested_at)
+			VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, 'pending', 'local_user', '1000', 'admin', now())
+			RETURNING operation_id`, q[0], q[1], s.ID, q[2], q[3]).Scan(&id); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		e.setState(t, id, StateRunning, StateSucceeded)
+		marks(name)
+	}
+
+	// An install marks installed only, and an EULA accepted only.
+	again, _, err := e.create(adminA, CreateOperationInput{ServerID: s.ID, Action: ActionInstall})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.setState(t, again.ID, StateRunning, StateSucceeded)
+	if got, _ := getServer(e, adminA, s.ID); !got.Installed || got.EulaAccepted {
+		t.Errorf("an install: installed %v accepted %v", got.Installed, got.EulaAccepted)
+	}
+
+	// The guard holds even if the app had a grant on the columns.
+	mustExec(t, e.owner, `GRANT UPDATE (installed_at, eula_accepted_at) ON waystone.servers TO waystone_app`)
+	defer mustExec(t, e.owner, `REVOKE UPDATE (installed_at, eula_accepted_at) ON waystone.servers FROM waystone_app`)
+	for _, col := range []string{"installed_at", "eula_accepted_at"} {
+		err := e.store.InTenantTx(context.Background(), adminA, func(ctx context.Context, tx *Tx) error {
+			_, err := tx.tx.Exec(ctx, `UPDATE waystone.servers SET `+col+` = now() WHERE server_id = $1`, s.ID)
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "set by operations only") {
+			t.Errorf("the app set %s with a grant: %v", col, err)
+		}
+	}
+}
+
+// 6c-H1: the servers 00009 marks installed and accepted each get one
+// recorded server.accept_eula row from the migration, in their tenant.
+func TestMigration00009Backfill(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	mustExec(t, e.owner, `DROP SCHEMA waystone CASCADE`)
+	mustExec(t, e.owner, `DROP SCHEMA waystone_meta CASCADE`)
+	mustExec(t, e.owner, `CREATE SCHEMA waystone`)
+	mustExec(t, e.owner, `CREATE SCHEMA waystone_meta`)
+	if _, err := provider(t).UpTo(ctx, 8); err != nil {
+		t.Fatal(err)
+	}
+	mustExec(t, e.owner, `INSERT INTO waystone.tenants (tenant_id, name) VALUES ($1, 'A'), ($2, 'B')`, tenantA, tenantB)
+	mustExec(t, e.owner, `INSERT INTO waystone.nodes (tenant_id, node_id, name) VALUES ($1, $2, 'node a'), ($3, $4, 'node b')`,
+		tenantA, nodeA, tenantB, nodeB)
+	mustExec(t, e.owner, `INSERT INTO waystone.servers (tenant_id, server_id, node_id, name, profile, runtime) VALUES
+		($1, $2, $3, 'a1', 'minecraft-java', 'systemd'), ($4, $5, $6, 'b1', 'minecraft-java', 'systemd')`,
+		tenantA, serverA1, nodeA, tenantB, serverB1, nodeB)
+	if err := Migrate(ctx, ownerDSN()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	for _, s := range [][2]string{{tenantA, serverA1}, {tenantB, serverB1}} {
+		var n int
+		if err := e.owner.QueryRow(ctx, `SELECT count(*) FROM waystone.audit_events
+			WHERE tenant_id = $1 AND resource_type = 'server' AND resource_id = $2
+			  AND action = 'server.accept_eula' AND outcome = 'recorded'
+			  AND actor_type = 'system' AND actor_id = 'migration-00009'
+			  AND reason = 'accepted before 00009, outside Waystone'`, s[0], s[1]).Scan(&n); err != nil || n != 1 {
+			t.Errorf("%s: %d backfill rows (%v), want 1", s[1], n, err)
+		}
+	}
+	if n := count(t, e.owner, "audit_events"); n != 2 {
+		t.Errorf("%d audit rows, want 2", n)
+	}
+	// Only the migration may write such a row.
+	_, err := e.owner.Exec(ctx, `INSERT INTO waystone.audit_events (tenant_id, event_id, actor_type, actor_id,
+		actor_name, action, resource_type, resource_id, reason, request_id, outcome, at)
+		VALUES ($1, gen_random_uuid(), 'system', 'later', 'x', 'server.accept_eula', 'server', 'c', 'd', 'e', 'recorded', now())`, tenantA)
+	if sqlState(err) != "23514" {
+		t.Errorf("another system row: err = %v, want a CHECK violation", err)
 	}
 }

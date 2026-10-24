@@ -192,7 +192,7 @@ func (s *Service) handleCreateEnrollment(w http.ResponseWriter, r *http.Request)
 		if s.agentLink == nil || !enrollbundle.UsableAddr(s.agentLink.Addr) {
 			return newError(CodeEnrollmentUnavailable, nil)
 		}
-		e, secret, err := tx.CreateEnrollment(ctx, body.Name)
+		e, secret, err := tx.CreateEnrollment(ctx, body.Name, requestIDFrom(r.Context()))
 		if err != nil {
 			return err
 		}

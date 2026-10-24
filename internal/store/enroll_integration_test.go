@@ -23,7 +23,7 @@ func (e *env) newEnrollment(t *testing.T, actor Actor, name string) (Enrollment,
 	var secret [32]byte
 	err := e.store.InTenantTx(context.Background(), actor, func(ctx context.Context, tx *Tx) error {
 		var err error
-		en, secret, err = tx.CreateEnrollment(ctx, name)
+		en, secret, err = tx.CreateEnrollment(ctx, name, "req-0")
 		return err
 	})
 	if err != nil {
@@ -110,7 +110,7 @@ func TestEnrollmentCreateAndList(t *testing.T) {
 
 	for _, bad := range []string{"", "a\nb", strings.Repeat("x", MaxNodeNameBytes+1)} {
 		err := e.store.InTenantTx(context.Background(), adminA, func(ctx context.Context, tx *Tx) error {
-			_, _, err := tx.CreateEnrollment(ctx, bad)
+			_, _, err := tx.CreateEnrollment(ctx, bad, "req-0")
 			return err
 		})
 		if !errors.Is(err, ErrInvalidInput) {
@@ -123,7 +123,7 @@ func TestEnrollmentNotForNodes(t *testing.T) {
 	e := setup(t)
 	e.newEnrollment(t, adminA, "node c")
 	err := e.store.InTenantTx(context.Background(), nodeActA, func(ctx context.Context, tx *Tx) error {
-		_, _, err := tx.CreateEnrollment(ctx, "x")
+		_, _, err := tx.CreateEnrollment(ctx, "x", "req-0")
 		return err
 	})
 	if !errors.Is(err, ErrNotAdmin) {
@@ -490,5 +490,32 @@ func mustExecTx(t *testing.T, tx pgx.Tx, sql string, args ...any) {
 	t.Helper()
 	if _, err := tx.Exec(context.Background(), sql, args...); err != nil {
 		t.Fatalf("%s: %v", sql, err)
+	}
+}
+
+// 6b-H1: a token is the right to add a machine, so making one is audited
+// as recorded, in the same transaction, without the secret.
+func TestCreateEnrollmentAudited(t *testing.T) {
+	e := setup(t)
+	en, secret := e.newEnrollment(t, adminA, "node c")
+	var n int
+	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM waystone.audit_events
+		WHERE tenant_id = $1 AND action = 'node.enrollment.create' AND outcome = 'recorded'
+		  AND resource_type = 'node_enrollment' AND resource_id = $2 AND reason = 'created'
+		  AND request_id = 'req-0' AND actor_type = 'local_user' AND actor_id = '1000'`, tenantA, en.ID).Scan(&n); err != nil || n != 1 {
+		t.Errorf("%d audit rows (%v), want 1", n, err)
+	}
+	var leaked int
+	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM waystone.audit_events a
+		WHERE strpos(row_to_json(a)::text, encode($1::bytea, 'hex')) > 0`, secret[:]).Scan(&leaked); err != nil || leaked != 0 {
+		t.Errorf("the secret is in %d audit rows (%v)", leaked, err)
+	}
+	// A refused name writes nothing.
+	_ = e.store.InTenantTx(context.Background(), adminA, func(ctx context.Context, tx *Tx) error {
+		_, _, err := tx.CreateEnrollment(ctx, "", "req-1")
+		return err
+	})
+	if n := e.count(t, `SELECT count(*) FROM waystone.audit_events WHERE request_id = 'req-1'`); n != 0 {
+		t.Errorf("a refused name wrote %d audit rows", n)
 	}
 }

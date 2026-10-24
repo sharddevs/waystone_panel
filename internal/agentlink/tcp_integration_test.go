@@ -114,7 +114,7 @@ func (e *tcpEnv) token(t *testing.T, name string) [32]byte {
 	var secret [32]byte
 	err := e.store.InTenantTx(context.Background(), tcpAdmin, func(ctx context.Context, tx *store.Tx) error {
 		var err error
-		_, secret, err = tx.CreateEnrollment(ctx, name)
+		_, secret, err = tx.CreateEnrollment(ctx, name, "req-test")
 		return err
 	})
 	if err != nil {
@@ -391,6 +391,31 @@ func TestTCPEnrollOnlyConnectNoLookups(t *testing.T) {
 	defer f.mu.Unlock()
 	if f.calls != 1 {
 		t.Fatalf("%d lookups for one handshake and 100 refused streams, want 1", f.calls)
+	}
+}
+
+// 6c-M1: the install calls are refused the same way, unary and stream
+// alike, before any lookup.
+func TestTCPEnrollOnlyInstallCallsNoLookups(t *testing.T) {
+	f := &failingNodes{failFrom: 1 << 30}
+	e := setupTCP(t, func(c *Config) { c.Nodes = f })
+	f.NodeLookup = e.store
+	cc := e.dial(t, newKey(t), "")
+	c := agentv1.NewAgentLinkServiceClient(cc)
+	op := "0199e1a0-0000-7000-8000-00000000c0de"
+	for i := range 100 {
+		_, err := c.GetInstallSpec(context.Background(), &agentv1.GetInstallSpecRequest{ServerId: serverA1, OperationId: op})
+		wantStatus(t, fmt.Sprintf("GetInstallSpec %d", i), err, codes.PermissionDenied, MsgNotPermitted)
+		s, err := c.FetchArtifact(context.Background(), &agentv1.FetchArtifactRequest{OperationId: op, Sha256: make([]byte, 32)})
+		if err == nil {
+			_, err = s.Recv()
+		}
+		wantStatus(t, fmt.Sprintf("FetchArtifact %d", i), err, codes.PermissionDenied, MsgNotPermitted)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.calls != 1 {
+		t.Fatalf("%d lookups for one handshake and 200 refused calls, want 1", f.calls)
 	}
 }
 

@@ -16,7 +16,11 @@
 --     per node.
 --   * operations gain server.install and server.accept_eula, and the
 --     install phases provisioning, fetching and configuring.
---   * server.create is audited as recorded.
+--   * server.create and node.enrollment.create (6b-H1) are audited as
+--     recorded.
+--   * the servers this migration marks installed and accepted each get a
+--     recorded server.accept_eula row from system/migration-00009, so
+--     their history says where the acceptance came from (6c-H1).
 
 -- +goose Up
 
@@ -264,9 +268,33 @@ END;
 $$;
 -- +goose StatementEnd
 
+-- The app never writes the two columns itself, even with a grant added
+-- by mistake later (6c-H2). Only the owner, and so the trigger below,
+-- can.
+-- +goose StatementBegin
+CREATE FUNCTION waystone.guard_server_marks()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF current_user = 'waystone_app'
+       AND (NEW.installed_at, NEW.eula_accepted_at)
+           IS DISTINCT FROM (OLD.installed_at, OLD.eula_accepted_at) THEN
+        RAISE EXCEPTION 'servers: installed_at and eula_accepted_at are set by operations only';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
+
+CREATE TRIGGER servers_marks_guard
+    BEFORE UPDATE ON waystone.servers
+    FOR EACH ROW EXECUTE FUNCTION waystone.guard_server_marks();
+
 -- An install or EULA operation that succeeded, or that a person resolved
--- as succeeded, marks its server. It runs as the owner, so the app needs
--- no grant on the two columns and nothing else can set them.
+-- as succeeded, marks its server: only the server it names, in its own
+-- tenant, and only its action's column (6c-H2). It runs as the owner, so
+-- the app needs no grant on the two columns.
 -- +goose StatementBegin
 CREATE FUNCTION waystone.mark_server_from_operation()
 RETURNS trigger
@@ -277,8 +305,12 @@ AS $$
 BEGIN
     -- IS [NOT] DISTINCT FROM throughout: a NULL here must never read as
     -- "succeeded".
+    IF NEW.resource_type IS DISTINCT FROM 'server' THEN
+        RETURN NULL;
+    END IF;
     IF NOT ((NEW.state IS NOT DISTINCT FROM 'succeeded' AND OLD.state IS DISTINCT FROM 'succeeded')
-            OR (NEW.resolved_outcome IS NOT DISTINCT FROM 'succeeded' AND OLD.resolved_outcome IS NULL)) THEN
+            OR (NEW.resolved_outcome IS NOT DISTINCT FROM 'succeeded'
+                AND OLD.resolved_outcome IS DISTINCT FROM 'succeeded')) THEN
         RETURN NULL;
     END IF;
     IF NEW.action = 'server.install' THEN
@@ -307,7 +339,22 @@ ALTER TABLE waystone.audit_events ADD CONSTRAINT audit_events_outcome_check
     CHECK (outcome = 'denied'
         OR (outcome = 'flagged' AND actor_type = 'node')
         OR (outcome = 'recorded' AND actor_type = 'local_user' AND action LIKE 'user.%')
-        OR (outcome = 'recorded' AND action IN ('node.enroll', 'node.revoke', 'server.create')));
+        OR (outcome = 'recorded' AND action IN ('node.enroll', 'node.revoke', 'server.create',
+                                                'node.enrollment.create'))
+        OR (outcome = 'recorded' AND actor_type = 'system' AND actor_id = 'migration-00009'
+            AND action = 'server.accept_eula'));
+
+-- 6c-H1: every server here now was set up by hand in stages 3 and 4, and
+-- the columns above marked it installed and accepted. The EULA is never
+-- inferred silently, so each one gets a row that says so.
+INSERT INTO waystone.audit_events
+    (tenant_id, event_id, actor_type, actor_id, actor_name, action,
+     resource_type, resource_id, reason, request_id, outcome, at)
+SELECT s.tenant_id, gen_random_uuid(), 'system', 'migration-00009', 'migration 00009',
+       'server.accept_eula', 'server', s.server_id::text,
+       'accepted before 00009, outside Waystone', 'migration-00009', 'recorded', now()
+FROM waystone.servers s
+WHERE s.eula_accepted_at IS NOT NULL;
 
 -- +goose Down
 -- Migrations only go forward (stage 1).

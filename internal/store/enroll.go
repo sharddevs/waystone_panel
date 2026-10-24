@@ -69,8 +69,10 @@ func (t *Tx) requireAdmin() error {
 // secret itself exists only in the return value. The actor must be an
 // admin (ErrNotAdmin; the table's policy refuses anyone else too). An
 // invalid name is ErrInvalidInput. When it expires and whether it has
-// been used are the database's to say.
-func (t *Tx) CreateEnrollment(ctx context.Context, name string) (Enrollment, [32]byte, error) {
+// been used are the database's to say. A node.enrollment.create audit row
+// labelled requestID is written with it (6b-H1): a token is the right to
+// add a machine.
+func (t *Tx) CreateEnrollment(ctx context.Context, name, requestID string) (Enrollment, [32]byte, error) {
 	var secret [32]byte
 	if err := t.requireAdmin(); err != nil {
 		return Enrollment{}, secret, err
@@ -97,6 +99,15 @@ func (t *Tx) CreateEnrollment(ctx context.Context, name string) (Enrollment, [32
 		Scan(&e.CreatedAt, &e.ExpiresAt)
 	if err != nil {
 		return Enrollment{}, [32]byte{}, fmt.Errorf("create enrollment: %w", err)
+	}
+	if err := t.insertAudit(ctx, Denial{
+		Action:       "node.enrollment.create",
+		ResourceType: "node_enrollment",
+		ResourceID:   id,
+		Reason:       "created",
+		RequestID:    requestID,
+	}, "recorded"); err != nil {
+		return Enrollment{}, [32]byte{}, err
 	}
 	return e, secret, nil
 }
