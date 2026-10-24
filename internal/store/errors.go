@@ -40,6 +40,9 @@ var (
 	// ErrNodeUnreachable: the server's node hasn't been seen within
 	// NodeStaleAfter, so a new operation is refused instead of queued (V1).
 	ErrNodeUnreachable = errors.New("node unreachable")
+	// ErrNodeRevoked: the server's node has been revoked, so it can't run
+	// anything new (D5).
+	ErrNodeRevoked = errors.New("node revoked")
 )
 
 // InProgressError says which operation blocks a new one. errors.Is(err,

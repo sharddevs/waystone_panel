@@ -147,8 +147,9 @@ func scanOperation(row pgx.Row) (Operation, error) {
 //     - otherwise the same fingerprint means a retry, so we return the
 //     original operation with replayed=true, whatever its state. A
 //     different fingerprint is ErrIdempotencyKeyReused.
-//     Then, if the server's node isn't reachable (NodeReachable at
-//     t.Now()), ErrNodeUnreachable; nothing is written (V1).
+//     Then, if the server's node is revoked, ErrNodeRevoked; if it isn't
+//     reachable (NodeReachable at t.Now()), ErrNodeUnreachable. Nothing
+//     is written (V1, D5).
 //  4. If the server already has a pending, running or unresolved
 //     uncertain operation, return an *InProgressError naming it.
 //  5. Insert the operation as pending and set the server's desired state.
@@ -272,15 +273,20 @@ func (t *Tx) CreateOperation(ctx context.Context, in CreateOperationInput) (op O
 	// queued (V1). This comes after the replay check, so a retry of a
 	// request accepted earlier still gets its operation, and before the
 	// blocking check, matching the order of the B8 reason codes.
+	// A revoked node is refused first, whatever its last report (D5).
 	var lastSeen *time.Time
+	var revoked bool
 	err = t.tx.QueryRow(ctx, `
-    SELECT last_seen_at
+    SELECT last_seen_at, revoked_at IS NOT NULL
     FROM waystone.nodes
     WHERE tenant_id = $1 AND node_id = $2
-`, t.TenantID(), nodeID).Scan(&lastSeen)
+`, t.TenantID(), nodeID).Scan(&lastSeen, &revoked)
 	if err != nil {
 		// The foreign key on servers means the node row exists.
 		return Operation{}, false, fmt.Errorf("check node: %w", err)
+	}
+	if revoked {
+		return Operation{}, false, ErrNodeRevoked
 	}
 	if !NodeReachable(lastSeen, t.Now()) {
 		return Operation{}, false, ErrNodeUnreachable

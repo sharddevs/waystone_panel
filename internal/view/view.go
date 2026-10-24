@@ -157,6 +157,7 @@ var serverActions = []struct {
 
 // The B8 reason codes. Fixed strings the UI maps to text.
 const (
+	reasonNodeRevoked         = "node_revoked"
 	reasonNodeUnreachable     = "node_unreachable"
 	reasonPreviousUncertain   = "previous_operation_uncertain"
 	reasonOperationInProgress = "operation_in_progress"
@@ -165,12 +166,15 @@ const (
 // ActionsFor lists what the actor may do to s (B8). allowed reports
 // whether the actor's role may perform an action at all; an action it
 // may not is left out. The others carry allowed=false and the first
-// reason that applies, in this order: node unreachable, an unresolved
-// uncertain operation, an operation in progress. These are exactly the
+// reason that applies, in this order: node revoked (D5), node
+// unreachable, an unresolved uncertain operation, an operation in
+// progress. These are exactly the
 // refusals CreateOperation makes, in the same order.
 func ActionsFor(allowed func(store.Action) bool, s store.Server, reachable bool) []Action {
 	reason := ""
 	switch {
+	case s.NodeRevoked:
+		reason = reasonNodeRevoked
 	case !reachable:
 		reason = reasonNodeUnreachable
 	case s.Blocking == store.StateUncertain:
@@ -192,12 +196,13 @@ func ActionsFor(allowed func(store.Action) bool, s store.Server, reachable bool)
 // permissions allowed describes (see ActionsFor).
 //
 //   - The node is unreachable when its last_seen_at is missing or older
-//     than StaleAfter (B2).
+//     than StaleAfter (B2), or when it is revoked (D5): its stream is cut
+//     then, whatever it last reported.
 //   - Process and readiness are shown as "unknown" when their last
 //     accepted observation is missing or older than StaleAfter (B6, B7).
 //     Readiness is also unknown while the node is unreachable (B7).
 func ServerOf(s store.Server, allowed func(store.Action) bool, now time.Time) Server {
-	reachable := store.NodeReachable(s.NodeLastSeenAt, now)
+	reachable := !s.NodeRevoked && store.NodeReachable(s.NodeLastSeenAt, now)
 	reach := Reachability{State: "reachable", LastSeenAt: s.NodeLastSeenAt}
 	if !reachable {
 		reach.State = "unreachable"

@@ -1,0 +1,46 @@
+{
+  "enrollments": [
+    {
+      "id": "0199e1a0-0000-7000-8000-00000000f003",
+      "name": "new-box",
+      "created_by": {
+        "type": "user",
+        "id": "0199e1a0-0000-7000-8000-00000000c001",
+        "name": "Trevor"
+      },
+      "created_at": "2026-10-16T11:50:00Z",
+      "expires_at": "2026-10-16T12:50:00Z",
+      "used_at": null,
+      "node_id": null,
+      "state": "pending"
+    },
+    {
+      "id": "0199e1a0-0000-7000-8000-00000000f002",
+      "name": "pi-node",
+      "created_by": {
+        "type": "user",
+        "id": "0199e1a0-0000-7000-8000-00000000c001",
+        "name": "Trevor"
+      },
+      "created_at": "2026-10-14T12:00:00Z",
+      "expires_at": "2026-10-14T13:00:00Z",
+      "used_at": "2026-10-14T12:30:00Z",
+      "node_id": "0199e1a0-0000-7000-8000-0000000000a2",
+      "state": "used"
+    },
+    {
+      "id": "0199e1a0-0000-7000-8000-00000000f001",
+      "name": "spare",
+      "created_by": {
+        "type": "user",
+        "id": "0199e1a0-0000-7000-8000-00000000c001",
+        "name": "Trevor"
+      },
+      "created_at": "2026-10-13T12:00:00Z",
+      "expires_at": "2026-10-13T13:00:00Z",
+      "used_at": null,
+      "node_id": null,
+      "state": "expired"
+    }
+  ]
+}

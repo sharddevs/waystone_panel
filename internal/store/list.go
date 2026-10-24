@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -30,6 +31,7 @@ type Server struct {
 
 	NodeName       string
 	NodeLastSeenAt *time.Time // nil until the node's agent first says hello
+	NodeRevoked    bool       // the node has been revoked (D5)
 
 	ProcessState      string // stopped, starting, running, stopping, failed, unknown
 	ProcessSince      *time.Time
@@ -67,7 +69,7 @@ const MaxListLimit = 100
 // member both.
 const serverColumns = `s.server_id::text, s.tenant_id::text, s.node_id::text, s.name, s.profile,
 	nullif(s.config->>'version', ''), s.runtime, s.desired_state,
-	n.name, n.last_seen_at,
+	n.name, n.last_seen_at, n.revoked_at IS NOT NULL,
 	s.process_state, s.process_since, s.process_observed_at,
 	s.readiness, s.readiness_since, s.readiness_observed_at,
 	coalesce((SELECT o.state FROM waystone.operations o
@@ -84,7 +86,7 @@ func scanServer(row interface{ Scan(...any) error }) (Server, error) {
 	var s Server
 	err := row.Scan(&s.ID, &s.TenantID, &s.NodeID, &s.Name, &s.Profile,
 		&s.ProfileVersion, &s.Runtime, &s.DesiredState,
-		&s.NodeName, &s.NodeLastSeenAt,
+		&s.NodeName, &s.NodeLastSeenAt, &s.NodeRevoked,
 		&s.ProcessState, &s.ProcessSince, &s.ProcessObservedAt,
 		&s.Readiness, &s.ReadinessSince, &s.ReadinessObservedAt,
 		&s.Blocking)
@@ -193,4 +195,68 @@ func (t *Tx) ListOperations(ctx context.Context, serverID string, limit int) ([]
 	}
 
 	return operations, nil
+}
+
+// Node is one node as the Nodes page shows it (6b, D9). Pinned is false
+// for the node on agent.sock, which has no key of its own.
+type Node struct {
+	ID           string
+	Name         string
+	LastSeenAt   *time.Time
+	Pinned       bool
+	AgentVersion *string
+	Capabilities []string
+	EnrolledAt   *time.Time
+	RevokedAt    *time.Time
+	ServerCount  int
+}
+
+const nodeColumns = `n.node_id::text, n.name, n.last_seen_at, n.agent_spki_sha256 IS NOT NULL,
+	n.agent_version, n.capabilities, n.enrolled_at, n.revoked_at,
+	(SELECT count(*) FROM waystone.servers s WHERE s.tenant_id = n.tenant_id AND s.node_id = n.node_id)
+	FROM waystone.nodes n`
+
+func scanNode(row interface{ Scan(...any) error }) (Node, error) {
+	var n Node
+	err := row.Scan(&n.ID, &n.Name, &n.LastSeenAt, &n.Pinned, &n.AgentVersion, &n.Capabilities,
+		&n.EnrolledAt, &n.RevokedAt, &n.ServerCount)
+	return n, err
+}
+
+// ListNodes returns the tenant's nodes, revoked ones too, by name and
+// then ID. RLS limits the rows to the tenant.
+func (t *Tx) ListNodes(ctx context.Context) ([]Node, error) {
+	rows, err := t.tx.Query(ctx, "SELECT "+nodeColumns+" ORDER BY n.name, n.node_id")
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	defer rows.Close()
+	nodes := []Node{}
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan node: %w", err)
+		}
+		nodes = append(nodes, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	return nodes, nil
+}
+
+// GetNode returns one of the tenant's nodes. A malformed ID is
+// ErrInvalidInput; a missing node, or another tenant's, is ErrNotFound.
+func (t *Tx) GetNode(ctx context.Context, id string) (Node, error) {
+	if err := ids.Check(id); err != nil {
+		return Node{}, ErrInvalidInput
+	}
+	n, err := scanNode(t.tx.QueryRow(ctx, "SELECT "+nodeColumns+" WHERE n.node_id = $1", id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Node{}, ErrNotFound
+	}
+	if err != nil {
+		return Node{}, fmt.Errorf("get node: %w", err)
+	}
+	return n, nil
 }

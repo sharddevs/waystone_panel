@@ -39,10 +39,11 @@ type wire struct {
 	Secret string `json:"secret"`
 }
 
-// usableAddr is an address a node can dial (6a-I5): a port, no zone, and
-// not unspecified, multicast or link-local, so a bundle can't point a node
-// at "any address" or at whatever answers on the local link.
-func usableAddr(a netip.AddrPort) bool {
+// UsableAddr reports whether a is an address a node can dial (6a-I5): a
+// port, no zone, and not unspecified, multicast or link-local, so a
+// bundle can't point a node at "any address" or at whatever answers on
+// the local link.
+func UsableAddr(a netip.AddrPort) bool {
 	ip := a.Addr()
 	return ip.IsValid() && a.Port() != 0 && ip.Zone() == "" &&
 		!ip.IsUnspecified() && !ip.IsMulticast() &&
@@ -51,7 +52,7 @@ func usableAddr(a netip.AddrPort) bool {
 
 // Encode returns the bundle as one line of base64url.
 func Encode(b Bundle) (string, error) {
-	if !usableAddr(b.Addr) {
+	if !UsableAddr(b.Addr) {
 		return "", errors.New("enrollment bundle: the address must be one reachable IP and a port")
 	}
 	j, err := json.Marshal(wire{V: 1, Addr: b.Addr.String(), Pin: b.Pin.String(), Secret: base64.RawURLEncoding.EncodeToString(b.Secret[:])})
@@ -82,7 +83,7 @@ func Decode(s string) (Bundle, error) {
 		return Bundle{}, fmt.Errorf("enrollment bundle: version %d, this agent reads version 1", w.V)
 	}
 	var b Bundle
-	if b.Addr, err = netip.ParseAddrPort(w.Addr); err != nil || !usableAddr(b.Addr) {
+	if b.Addr, err = netip.ParseAddrPort(w.Addr); err != nil || !UsableAddr(b.Addr) {
 		return Bundle{}, errors.New("enrollment bundle: the address must be one reachable IP and a port")
 	}
 	if b.Pin, err = agenttls.ParsePin(w.Pin); err != nil {

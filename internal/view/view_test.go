@@ -99,3 +99,63 @@ func TestNeverObservedIsUnknown(t *testing.T) {
 		t.Errorf("never observed: %+v %+v", j.Process, j.Readiness)
 	}
 }
+
+// A revoked node is unreachable whatever it last reported, and its revoke
+// is refused; a role that may not revoke sees no revoke at all.
+func TestNodeOf(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	seen := now.Add(-time.Second)
+	yes := func(string) bool { return true }
+	n := NodeOf(store.Node{LastSeenAt: &seen}, yes, now)
+	if n.Reachability.State != "reachable" || n.Link != "local" || n.Capabilities == nil ||
+		len(n.Actions) != 1 || !n.Actions[0].Allowed || n.Actions[0].Reason != "" {
+		t.Errorf("active node: %+v", n)
+	}
+	n = NodeOf(store.Node{LastSeenAt: &seen, Pinned: true, RevokedAt: &now}, yes, now)
+	if n.Reachability.State != "unreachable" || n.Link != "mtls" ||
+		len(n.Actions) != 1 || n.Actions[0].Allowed || n.Actions[0].Reason != "already_revoked" {
+		t.Errorf("revoked node: %+v", n)
+	}
+	old := now.Add(-time.Hour)
+	if n = NodeOf(store.Node{LastSeenAt: &old}, yes, now); n.Reachability.State != "unreachable" {
+		t.Errorf("stale node: %+v", n)
+	}
+	if n = NodeOf(store.Node{LastSeenAt: &seen}, func(string) bool { return false }, now); len(n.Actions) != 0 {
+		t.Errorf("no permission: %+v", n.Actions)
+	}
+}
+
+// A token is pending until its expiry, expired from then on, and used
+// once redeemed, whatever the clock says.
+func TestEnrollmentOf(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	e := store.Enrollment{ExpiresAt: now.Add(time.Nanosecond)}
+	if got := EnrollmentOf(e, now); got.State != "pending" || got.NodeID != nil {
+		t.Errorf("pending: %+v", got)
+	}
+	e.ExpiresAt = now
+	if got := EnrollmentOf(e, now); got.State != "expired" {
+		t.Errorf("at expiry: %+v", got)
+	}
+	e.UsedAt, e.NodeID = &now, "n"
+	if got := EnrollmentOf(e, now.Add(time.Hour)); got.State != "used" || got.NodeID == nil || *got.NodeID != "n" {
+		t.Errorf("used: %+v", got)
+	}
+}
+
+// A revoked node blocks every action first, even ahead of an unreachable
+// node or a blocking operation, and its servers read unreachable and
+// unknown even if it reported a moment ago.
+func TestActionsNodeRevoked(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	seen := now.Add(-time.Second)
+	j := ServerOf(store.Server{NodeRevoked: true, NodeLastSeenAt: &seen, Readiness: "ready", ReadinessObservedAt: &seen}, all, now)
+	if j.Node.Reachability.State != "unreachable" || j.Readiness.State != "unknown" {
+		t.Errorf("server on a revoked node: %+v %+v", j.Node, j.Readiness)
+	}
+	for _, a := range ActionsFor(all, store.Server{NodeRevoked: true, Blocking: store.StateUncertain}, false) {
+		if a.Allowed || a.Reason != "node_revoked" {
+			t.Errorf("%s: %+v", a.Action, a)
+		}
+	}
+}

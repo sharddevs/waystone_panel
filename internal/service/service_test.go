@@ -261,6 +261,8 @@ func TestErrorFor(t *testing.T) {
 		{"not uncertain", store.ErrNotUncertain, CodeNotUncertain, ""},
 		{"already resolved", wrap(store.ErrAlreadyResolved), CodeAlreadyResolved, ""},
 		{"node unreachable", wrap(store.ErrNodeUnreachable), CodeNodeUnreachable, ""},
+		{"node revoked", wrap(store.ErrNodeRevoked), CodeNodeRevoked, ""},
+		{"not an admin", wrap(store.ErrNotAdmin), CodeForbidden, ""},
 		{"invalid actor is our bug", fmt.Errorf("%w: name", store.ErrInvalidActor), CodeInternal, ""},
 		{"database down", errors.New("connection refused"), CodeInternal, ""},
 		{"context", context.DeadlineExceeded, CodeInternal, ""},
@@ -326,8 +328,8 @@ func TestAuthorize(t *testing.T) {
 	}
 }
 
-// Routes is exactly the stage 4 route table, so both sockets mount the
-// same eight routes.
+// Routes is exactly the stage 4 route table plus the Nodes API (6b), so
+// both sockets mount the same thirteen routes.
 func TestRoutes(t *testing.T) {
 	var got []string
 	for _, rt := range New(Config{Log: discardLogger()}).Routes() {
@@ -345,6 +347,11 @@ func TestRoutes(t *testing.T) {
 		"GET /api/v1/operations",
 		"GET /api/v1/operations/{id}",
 		"POST /api/v1/operations/{id}/resolve",
+		"GET /api/v1/nodes",
+		"GET /api/v1/nodes/{id}",
+		"POST /api/v1/nodes/{id}/revoke",
+		"GET /api/v1/nodes/enrollments",
+		"POST /api/v1/nodes/enrollments",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("routes:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

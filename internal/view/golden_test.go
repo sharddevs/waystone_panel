@@ -100,6 +100,39 @@ func goldenOperations() []Operation {
 	}
 }
 
+// goldenNodes: the local node, reachable and running servers; an
+// enrolled node that went quiet; and a revoked one, with revoke refused.
+func goldenNodes() []NodeDetail {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *time.Time { t := now.Add(-d); return &t }
+	version := "0.1.0"
+	yes := func(string) bool { return true }
+	return []NodeDetail{
+		NodeOf(store.Node{ID: "0199e1a0-0000-7000-8000-0000000000a1", Name: "homelab-1", LastSeenAt: at(5 * time.Second),
+			AgentVersion: &version, Capabilities: []string{"systemd"}, ServerCount: 2}, yes, now),
+		NodeOf(store.Node{ID: "0199e1a0-0000-7000-8000-0000000000a2", Name: "pi-node", LastSeenAt: at(4 * time.Minute), Pinned: true,
+			AgentVersion: &version, Capabilities: []string{"systemd"}, EnrolledAt: at(48 * time.Hour), ServerCount: 1}, yes, now),
+		NodeOf(store.Node{ID: "0199e1a0-0000-7000-8000-0000000000a3", Name: "old-box", LastSeenAt: at(5 * time.Second), Pinned: true,
+			EnrolledAt: at(72 * time.Hour), RevokedAt: at(time.Hour)}, yes, now),
+	}
+}
+
+// goldenEnrollments: one pending, one used, one expired.
+func goldenEnrollments() []Enrollment {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	trevor := store.Actor{Type: store.ActorUser, ID: "0199e1a0-0000-7000-8000-00000000c001", Name: "Trevor"}
+	used := now.Add(-47*time.Hour - 30*time.Minute)
+	mk := func(id, name string, created time.Duration) store.Enrollment {
+		c := now.Add(-created)
+		return store.Enrollment{ID: id, Name: name, CreatedBy: trevor, CreatedAt: c, ExpiresAt: c.Add(store.EnrollmentTTL)}
+	}
+	pending := mk("0199e1a0-0000-7000-8000-00000000f003", "new-box", 10*time.Minute)
+	usedE := mk("0199e1a0-0000-7000-8000-00000000f002", "pi-node", 48*time.Hour)
+	usedE.UsedAt, usedE.NodeID = &used, "0199e1a0-0000-7000-8000-0000000000a2"
+	expired := mk("0199e1a0-0000-7000-8000-00000000f001", "spare", 72*time.Hour)
+	return []Enrollment{EnrollmentOf(pending, now), EnrollmentOf(usedE, now), EnrollmentOf(expired, now)}
+}
+
 // The shapes the handlers send (service/handlers.go): a list is wrapped
 // in {"servers": …} or {"operations": …}.
 func TestGolden(t *testing.T) {
@@ -109,4 +142,11 @@ func TestGolden(t *testing.T) {
 	ops := goldenOperations()
 	golden(t, "operation.json", ops[1])
 	golden(t, "operations.json", map[string]any{"operations": ops})
+	nodes := goldenNodes()
+	golden(t, "node.json", nodes[1])
+	golden(t, "nodes.json", map[string]any{"nodes": nodes})
+	ens := goldenEnrollments()
+	golden(t, "enrollments.json", map[string]any{"enrollments": ens})
+	// The bundle here is a placeholder; a real one is base64url JSON.
+	golden(t, "enrollment_new.json", NewEnrollment{Enrollment: ens[0], Bundle: "eyJ2IjoxfQ", Command: EnrollCommand})
 }

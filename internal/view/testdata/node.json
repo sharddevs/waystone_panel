@@ -1,0 +1,22 @@
+{
+  "id": "0199e1a0-0000-7000-8000-0000000000a2",
+  "name": "pi-node",
+  "reachability": {
+    "state": "unreachable",
+    "last_seen_at": "2026-10-16T11:56:00Z"
+  },
+  "link": "mtls",
+  "agent_version": "0.1.0",
+  "capabilities": [
+    "systemd"
+  ],
+  "enrolled_at": "2026-10-14T12:00:00Z",
+  "revoked_at": null,
+  "server_count": 1,
+  "actions": [
+    {
+      "action": "revoke",
+      "allowed": true
+    }
+  ]
+}

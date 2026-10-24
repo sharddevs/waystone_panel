@@ -27,6 +27,8 @@ const (
 	CodeRateLimited                = "rate_limited"
 	CodeControllerBusy             = "controller_busy"
 	CodeNodeUnreachable            = "node_unreachable"
+	CodeNodeRevoked                = "node_revoked"
+	CodeEnrollmentUnavailable      = "enrollment_unavailable"
 	CodeInternal                   = "internal"
 )
 
@@ -51,6 +53,8 @@ var errorInfo = map[string]struct {
 	CodeRateLimited:                {http.StatusTooManyRequests, "Too many requests. Try again later."},
 	CodeControllerBusy:             {http.StatusServiceUnavailable, "The controller is busy. Try again shortly."},
 	CodeNodeUnreachable:            {http.StatusConflict, "The server's node is not connected. Try again once it is back."},
+	CodeNodeRevoked:                {http.StatusConflict, "The server's node has been revoked."},
+	CodeEnrollmentUnavailable:      {http.StatusConflict, "Nodes can't be added: the controller has no agent listener on a reachable address."},
 	CodeInternal:                   {http.StatusInternalServerError, "Internal error."},
 }
 
@@ -141,6 +145,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 //   - ErrIdempotencyKeyReused: idempotency_key_reused.
 //   - ErrNotUncertain: not_uncertain.  ErrAlreadyResolved: already_resolved.
 //   - ErrNodeUnreachable: node_unreachable (no operation ID).
+//   - ErrNodeRevoked: node_revoked.  ErrNotAdmin: forbidden (run
+//     refuses non-admins first; this is the store's own check).
 //   - anything else (ErrInvalidActor included: the actor comes from the
 //     kernel, so a bad one is our bug): internal.
 //
@@ -191,6 +197,12 @@ func errorFor(err error) *Error {
 
 	case errors.Is(err, store.ErrNodeUnreachable):
 		return newError(CodeNodeUnreachable, err)
+
+	case errors.Is(err, store.ErrNodeRevoked):
+		return newError(CodeNodeRevoked, err)
+
+	case errors.Is(err, store.ErrNotAdmin):
+		return newError(CodeForbidden, err)
 
 	default:
 		return newError(CodeInternal, err)

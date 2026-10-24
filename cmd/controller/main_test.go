@@ -4,7 +4,10 @@ package main
 
 import (
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -77,3 +80,36 @@ func TestRunDatabaseFailure(t *testing.T) {
 		t.Errorf("run with an unreachable database = %d, want 1", code)
 	}
 }
+
+// A bundle's address is the listener's own, an IPv4-mapped one unmapped,
+// and nothing for a listener that isn't TCP.
+func TestListenerAddr(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if got := listenerAddr(l); got.Addr() != netip.MustParseAddr("127.0.0.1") || got.Port() == 0 {
+		t.Errorf("listenerAddr = %v", got)
+	}
+	// systemd's socket can hand over an IPv4 address in 16-byte form.
+	mapped := addrListener{&net.TCPAddr{IP: net.ParseIP("10.0.20.80"), Port: 7443}}
+	if got := listenerAddr(mapped); got != netip.MustParseAddrPort("10.0.20.80:7443") {
+		t.Errorf("16-byte IPv4: listenerAddr = %v", got)
+	}
+	u, err := net.Listen("unix", filepath.Join(t.TempDir(), "s"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	if got := listenerAddr(u); got.IsValid() {
+		t.Errorf("unix listener: %v", got)
+	}
+}
+
+// addrListener is a listener that only has an address.
+type addrListener struct{ addr net.Addr }
+
+func (l addrListener) Accept() (net.Conn, error) { return nil, net.ErrClosed }
+func (l addrListener) Close() error              { return nil }
+func (l addrListener) Addr() net.Addr            { return l.addr }

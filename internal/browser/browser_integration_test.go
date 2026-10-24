@@ -82,6 +82,12 @@ func (s *syncBuffer) Write(p []byte) (int, error) {
 	return s.b.Write(p)
 }
 
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
 type env struct {
 	web, api http.Handler
 	owner    *pgx.Conn
@@ -93,6 +99,12 @@ type env struct {
 }
 
 func setup(t *testing.T) *env {
+	t.Helper()
+	return setupWith(t, nil)
+}
+
+// setupWith is setup with the service's config adjusted by cfg first.
+func setupWith(t *testing.T, cfg func(*service.Config)) *env {
 	t.Helper()
 	ctx := context.Background()
 	if !strings.Contains(ownerDSN(), "waystone_test") {
@@ -163,7 +175,11 @@ func setup(t *testing.T) *env {
 	logger := log.New(&e.logs, "", 0)
 
 	// As the controller wires it: one service, both sockets.
-	svc := service.New(service.Config{Store: st, Log: logger, Now: clock})
+	svcCfg := service.Config{Store: st, Log: logger, Now: clock}
+	if cfg != nil {
+		cfg(&svcCfg)
+	}
+	svc := service.New(svcCfg)
 	e.api = api.New(api.Config{Version: "test", Service: svc, Log: logger, Lookup: func(uid string) (string, error) {
 		if n, ok := localNames[uid]; ok {
 			return n, nil

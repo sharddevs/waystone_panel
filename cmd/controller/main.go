@@ -19,6 +19,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"os/user"
@@ -333,6 +334,7 @@ func run(args []string, stderr io.Writer) int {
 	}
 
 	var link *agentlink.Server
+	var enrollAt *service.AgentLink
 	if agentListener != nil || socks.agentTCP != nil {
 		linkCfg := agentlink.Config{Store: db, Version: version}
 		if agentListener != nil {
@@ -347,6 +349,9 @@ func run(args []string, stderr io.Writer) int {
 				return 1
 			}
 			linkCfg.TLS = &cert
+			// A bundle names the listener's own address, from its socket
+			// unit (6H3); the service refuses tokens if it's unspecified.
+			enrollAt = &service.AgentLink{Addr: listenerAddr(socks.agentTCP), Pin: agenttls.PinOf(cert.Leaf)}
 			fmt.Fprintf(stderr, "Waystone agent link TCP listening on %s, controller pin %s\n", socks.agentTCP.Addr(), agenttls.PinOf(cert.Leaf))
 		}
 		link, err = agentlink.New(linkCfg)
@@ -361,6 +366,9 @@ func run(args []string, stderr io.Writer) int {
 		// A new operation wakes the agent session at once (Q7), instead
 		// of waiting for its next report.
 		svcCfg.OnOperation = func(op store.Operation) { link.Kick(op.NodeID) }
+		// A revocation cuts the node's live stream at once (D5).
+		svcCfg.OnNodeRevoked = link.Revoke
+		svcCfg.AgentLink = enrollAt
 	}
 	// One service for both sockets (5b, Q1): the same handlers and one
 	// POST rate limit, per actor. Each socket has its own concurrency
@@ -465,6 +473,17 @@ func run(args []string, stderr io.Writer) int {
 // link together, within one budget. Whatever is still running then is cut
 // off. It reports whether everything finished in time. webServer may be
 // nil (only in tests).
+// listenerAddr is l's address as an IP and port, or the zero value if it
+// isn't a TCP listener.
+func listenerAddr(l net.Listener) netip.AddrPort {
+	a, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		return netip.AddrPort{}
+	}
+	ap := a.AddrPort()
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+}
+
 func shutdown(server *http.Server, webServer *web.Server, link *agentlink.Server, budget time.Duration, stderr io.Writer) bool {
 	if link != nil {
 		link.CancelSessions()

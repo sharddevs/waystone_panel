@@ -296,3 +296,61 @@ func TestCreateOperationNodeUnreachable(t *testing.T) {
 		t.Errorf("45 s ago: %v", err)
 	}
 }
+
+// D5: a revoked node's servers refuse new operations with
+// ErrNodeRevoked, before the reachability check, and say so in the list.
+func TestCreateOperationNodeRevoked(t *testing.T) {
+	e := setup(t)
+	mustExec(t, e.owner, `UPDATE waystone.nodes SET revoked_at = now() WHERE node_id = $1`, nodeA)
+	if _, _, err := e.create(adminA, CreateOperationInput{ServerID: serverA1, Action: ActionStart}); !errors.Is(err, ErrNodeRevoked) {
+		t.Fatalf("revoked, still seen: %v", err)
+	}
+	mustExec(t, e.owner, `UPDATE waystone.nodes SET last_seen_at = NULL WHERE node_id = $1`, nodeA)
+	if _, _, err := e.create(adminA, CreateOperationInput{ServerID: serverA1, Action: ActionStart}); !errors.Is(err, ErrNodeRevoked) {
+		t.Fatalf("revoked and unreachable: %v", err)
+	}
+	if s, _ := getServer(e, adminA, serverA1); !s.NodeRevoked {
+		t.Error("server doesn't say its node is revoked")
+	}
+	if s, _ := getServer(e, adminB, serverB1); s.NodeRevoked {
+		t.Error("another node reads as revoked")
+	}
+}
+
+func TestListNodes(t *testing.T) {
+	e := setup(t)
+	pin := pinOf(7)
+	mustExec(t, e.owner, `INSERT INTO waystone.nodes (tenant_id, node_id, name, agent_spki_sha256, enrolled_at, agent_version, capabilities)
+		VALUES ($1, '0199e1a0-0000-7000-8000-0000000000a2', 'a remote', $2, now(), '0.1.0', '{systemd,minecraft-java}')`, tenantA, pin[:])
+	var nodes []Node
+	err := e.store.InTenantTx(context.Background(), adminA, func(ctx context.Context, tx *Tx) error {
+		var err error
+		nodes, err = tx.ListNodes(ctx)
+		return err
+	})
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("ListNodes = %+v, %v", nodes, err)
+	}
+	local, remote := nodes[1], nodes[0] // "a remote" sorts first
+	if local.ID != nodeA || local.Pinned || local.ServerCount != 2 || local.EnrolledAt != nil || local.AgentVersion != nil || len(local.Capabilities) != 0 {
+		t.Errorf("local node %+v", local)
+	}
+	if !remote.Pinned || remote.ServerCount != 0 || remote.EnrolledAt == nil || *remote.AgentVersion != "0.1.0" || len(remote.Capabilities) != 2 || remote.RevokedAt != nil {
+		t.Errorf("remote node %+v", remote)
+	}
+	err = e.store.InTenantTx(context.Background(), adminA, func(ctx context.Context, tx *Tx) error {
+		if n, err := tx.GetNode(ctx, nodeA); err != nil || n.Name != "node a" {
+			t.Errorf("GetNode = %+v, %v", n, err)
+		}
+		if _, err := tx.GetNode(ctx, nodeB); !errors.Is(err, ErrNotFound) {
+			t.Errorf("other tenant's node: %v", err)
+		}
+		if _, err := tx.GetNode(ctx, "x"); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("bad ID: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

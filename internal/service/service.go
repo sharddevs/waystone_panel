@@ -31,6 +31,14 @@ type Config struct {
 	// committed, never for a replay. The controller uses it to wake the
 	// node's agent session (4c, Q7). It must not block.
 	OnOperation func(store.Operation)
+	// AgentLink is the agent listener a new node is told to dial. Nil
+	// means there is no TCP listener, and no token can be made.
+	AgentLink *AgentLink
+	// OnNodeRevoked, if set, is called with a node's ID once its
+	// revocation has committed, never for one already revoked. The
+	// controller uses it to cut the node's live stream (D5). It must not
+	// block.
+	OnNodeRevoked func(nodeID string)
 }
 
 // Service holds what the handlers share. One Service serves both
@@ -39,11 +47,13 @@ type Config struct {
 // shared: each socket brings its own Slots, so a browser can't fill
 // api.sock's, the local admin's way in (5b audit H1).
 type Service struct {
-	store       *store.Store
-	log         *log.Logger
-	now         func() time.Time
-	limiter     *rateLimiter
-	onOperation func(store.Operation)
+	store         *store.Store
+	log           *log.Logger
+	now           func() time.Time
+	limiter       *rateLimiter
+	onOperation   func(store.Operation)
+	agentLink     *AgentLink
+	onNodeRevoked func(string)
 }
 
 // New builds the service.
@@ -55,11 +65,13 @@ func New(cfg Config) *Service {
 		cfg.Now = time.Now
 	}
 	return &Service{
-		store:       cfg.Store,
-		log:         cfg.Log,
-		now:         cfg.Now,
-		limiter:     newRateLimiter(RateLimit, RateWindow),
-		onOperation: cfg.OnOperation,
+		store:         cfg.Store,
+		log:           cfg.Log,
+		now:           cfg.Now,
+		limiter:       newRateLimiter(RateLimit, RateWindow),
+		onOperation:   cfg.OnOperation,
+		agentLink:     cfg.AgentLink,
+		onNodeRevoked: cfg.OnNodeRevoked,
 	}
 }
 
@@ -76,7 +88,7 @@ type Route struct {
 	Handler http.Handler
 }
 
-// Routes are the server and operation routes, the same list for both
+// Routes are the server, operation and node routes, the same list for both
 // sockets. The caller wraps each handler so the request has an ID and an
 // actor (and, for POST, passes the rate limit) before it runs.
 func (s *Service) Routes() []Route {
@@ -93,6 +105,11 @@ func (s *Service) Routes() []Route {
 		{http.MethodGet, "/api/v1/operations", http.HandlerFunc(s.handleListOperations)},
 		{http.MethodGet, "/api/v1/operations/{id}", http.HandlerFunc(s.handleGetOperation)},
 		{http.MethodPost, "/api/v1/operations/{id}/resolve", http.HandlerFunc(s.handleResolve)},
+		{http.MethodGet, "/api/v1/nodes", http.HandlerFunc(s.handleListNodes)},
+		{http.MethodGet, "/api/v1/nodes/{id}", http.HandlerFunc(s.handleGetNode)},
+		{http.MethodPost, "/api/v1/nodes/{id}/revoke", http.HandlerFunc(s.handleRevokeNode)},
+		{http.MethodGet, "/api/v1/nodes/enrollments", http.HandlerFunc(s.handleListEnrollments)},
+		{http.MethodPost, "/api/v1/nodes/enrollments", http.HandlerFunc(s.handleCreateEnrollment)},
 	}
 }
 
