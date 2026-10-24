@@ -175,7 +175,12 @@ describe('Nodes page (D9)', () => {
     expect(post?.body).toEqual({ name: 'new-box' })
     expect(post?.headers['X-CSRF-Token']).toBe(goldenSession.csrf_token)
     expect(screen.getByText(made.command)).toBeInTheDocument()
-    expect(screen.getByLabelText('When it asks, paste this bundle:')).toHaveValue(made.bundle)
+    const bundle = screen.getByLabelText('When it asks, paste this bundle:')
+    expect(bundle).toHaveValue(made.bundle)
+    // 6d-H1: a credential, kept away from spellcheckers and autofill.
+    expect(bundle).toHaveAttribute('spellcheck', 'false')
+    expect(bundle).toHaveAttribute('autocomplete', 'off')
+    expect(bundle).toHaveAttribute('autocapitalize', 'none')
     expect(screen.getByRole('button', { name: 'Copy the command' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Copy the bundle' })).toBeInTheDocument()
     expect(screen.getByText(/The bundle works once, until .*Waystone won't show it again/)).toBeInTheDocument()

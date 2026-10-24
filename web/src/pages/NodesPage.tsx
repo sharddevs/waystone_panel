@@ -254,13 +254,25 @@ function AddNode({ now, onChange, onClose }: { now: Date; onChange: () => void; 
           </li>
           <li>
             <label htmlFor={bundleId}>When it asks, paste this bundle:</label>
-            <textarea id={bundleId} className="bundle mono" readOnly rows={3} value={made.bundle} onFocus={(e) => e.currentTarget.select()} />
+            {/* The bundle is a credential: no spellchecker (some upload what
+                they check), no autofill, no autocapitalisation (6d-H1). */}
+            <textarea
+              id={bundleId}
+              className="bundle mono"
+              readOnly
+              rows={3}
+              value={made.bundle}
+              spellCheck={false}
+              autoComplete="off"
+              autoCapitalize="none"
+              onFocus={(e) => e.currentTarget.select()}
+            />
             <CopyButton text={made.bundle} label="Copy the bundle" />
           </li>
         </ol>
         <p className="note">
           The bundle works once, until {formatTime(made.enrollment.expires_at, now)}. Waystone won't show it again: if it's lost, make a new
-          one and let this one expire.
+          one and let this one expire. Once it's pasted, copy something else so it isn't left on the clipboard.
         </p>
         <button
           type="button"
