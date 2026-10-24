@@ -1,0 +1,80 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/*
+ * Design tokens v0.1 (notes/design-tokens-v0.1.md). Every colour in the
+ * UI comes from here. Each colour is light-dark(light, dark); the mode
+ * only picks color-scheme, so System follows prefers-color-scheme with
+ * no duplicated values. src/contrast.test.ts checks WCAG AA for every
+ * theme and mode, so change a value only with that test green.
+ */
+
+:root,
+:root[data-theme='stone'] {
+  --bg: light-dark(#f6f3ee, #141312);
+  --surface: light-dark(#fffdf9, #1c1b19);
+  --surface-2: light-dark(#efebe4, #24221f);
+  --border: light-dark(#ddd6cb, #34312c);
+  --fg: light-dark(#1f1b16, #ece7df);
+  --fg-2: light-dark(#5c5449, #aea69a);
+  --fg-3: light-dark(#6f665a, #8a8276);
+  --accent: light-dark(#9a5a1c, #d39a5c);
+  --accent-fg: light-dark(#ffffff, #1a120a);
+  --accent-soft: light-dark(#f3e6d6, #33271b);
+  --ok: light-dark(#2f7a33, #8fc98a);
+  --warn: light-dark(#835800, #e3b65c);
+  --bad: light-dark(#a8342a, #e8857a);
+  --unk: light-dark(#615a50, #b3aa9d);
+}
+
+:root[data-theme='slate'] {
+  --bg: light-dark(#f5f7f8, #0f1416);
+  --surface: light-dark(#ffffff, #161d20);
+  --surface-2: light-dark(#eef2f3, #1c2528);
+  --border: light-dark(#d3dcdf, #2a373b);
+  --fg: light-dark(#111a1d, #e3e9eb);
+  --fg-2: light-dark(#4d5d63, #9eacb1);
+  --fg-3: light-dark(#617177, #76868c);
+  --accent: light-dark(#2b6f8a, #7fb4c9);
+  --accent-fg: light-dark(#ffffff, #0b1214);
+  --accent-soft: light-dark(#e1eef3, #1d2f36);
+  --ok: light-dark(#1d7a47, #6fcf97);
+  --warn: light-dark(#8a5a00, #e2b45a);
+  --bad: light-dark(#b3261e, #ef7f7a);
+  --unk: light-dark(#56666c, #a3b0b5);
+}
+
+/* Mode: dark is the default. */
+:root,
+:root[data-mode='dark'] {
+  color-scheme: dark;
+}
+:root[data-mode='light'] {
+  color-scheme: light;
+}
+:root[data-mode='system'] {
+  color-scheme: light dark;
+}
+
+/* Density and shape. */
+:root,
+:root[data-density='comfortable'] {
+  --fs: 15px;
+  --radius: 10px;
+  --radius-sm: 7px;
+  --pad: 20px;
+  --row: 12px;
+}
+:root[data-density='compact'] {
+  --fs: 14.5px;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --pad: 16px;
+  --row: 9px;
+}
+
+:root {
+  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-head: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --focus: 2px solid var(--accent);
+  --focus-offset: 2px;
+}

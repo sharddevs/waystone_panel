@@ -230,6 +230,9 @@ func adminMember(uid int) (bool, error) {
 // -agent-node, plus -agent-socket in dev mode. The agent link runs only
 // if there is an agent socket, and then both -agent-uid and -agent-node
 // are required.
+// -dev-ui-dir serves the web UI from disk, only in -tags devweb builds
+// (Q13); otherwise the UI is the one built in with -tags ui, or the "UI
+// not built" page.
 func run(args []string, stderr io.Writer) int {
 	flags := flag.NewFlagSet("controller", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -243,9 +246,10 @@ func run(args []string, stderr io.Writer) int {
 	publicURL := flags.String("public-url", "", "The canonical public URL, e.g. https://panel.example.com (required)")
 	proxyUID := flags.Int("proxy-uid", -1, "The only uid web.sock accepts: the reverse proxy's (required)")
 	hstsMaxAge := flags.Int("hsts-max-age", web.DefaultHSTSMaxAge, "HSTS max-age in seconds")
+	devUIDir := flags.String("dev-ui-dir", "", "Development: serve the web UI from this directory (devweb builds)")
 
 	flags.Usage = func() {
-		fmt.Fprintln(stderr, "usage: controller -public-url <url> -proxy-uid <uid> [-hsts-max-age <s>] [-db <dsn>] [-api-socket <path> -web-socket <path>] [-agent-socket <path>] [-agent-uid <uid> -agent-node <uuid>]")
+		fmt.Fprintln(stderr, "usage: controller -public-url <url> -proxy-uid <uid> [-hsts-max-age <s>] [-db <dsn>] [-api-socket <path> -web-socket <path>] [-agent-socket <path>] [-agent-uid <uid> -agent-node <uuid>] [-dev-ui-dir <dir>]")
 	}
 
 	if err := flags.Parse(args); err != nil {
@@ -284,6 +288,11 @@ func run(args []string, stderr io.Writer) int {
 	if *hstsMaxAge < 1 || *hstsMaxAge > web.MaxHSTSMaxAge {
 		fmt.Fprintf(stderr, "-hsts-max-age %d: must be 1 to %d\n", *hstsMaxAge, web.MaxHSTSMaxAge)
 		return 2
+	}
+	ui, uiSource, err := uiRoutes(*devUIDir)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
 	ctx := context.Background()
 
@@ -336,7 +345,7 @@ func run(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	webHandler, err := web.New(web.Config{Public: public, ProxyUID: uint32(*proxyUID), HSTSMaxAge: *hstsMaxAge, Sessions: sessions}, webRoutes(sessions, svc)...)
+	webHandler, err := web.New(web.Config{Public: public, ProxyUID: uint32(*proxyUID), HSTSMaxAge: *hstsMaxAge, Sessions: sessions}, webRoutes(sessions, svc, ui)...)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -367,6 +376,7 @@ func run(args []string, stderr io.Writer) int {
 
 	fmt.Fprintf(stderr, "Waystone controller listening on %s\n", listener.Addr())
 	fmt.Fprintf(stderr, "Waystone web listening on %s for %s, proxy uid %d\n", webServer.Addr(), public, *proxyUID)
+	fmt.Fprintf(stderr, "web UI: %s\n", uiSource)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)

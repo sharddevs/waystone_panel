@@ -1,0 +1,64 @@
+{
+  "operations": [
+    {
+      "id": "0199e1a0-0000-7000-8000-00000000d003",
+      "server_id": "0199e1a0-0000-7000-8000-000000000a01",
+      "node_id": "0199e1a0-0000-7000-8000-0000000000a1",
+      "action": "server.restart",
+      "state": "running",
+      "phase": "stopping",
+      "actor": {
+        "type": "user",
+        "id": "0199e1a0-0000-7000-8000-00000000c001",
+        "name": "Trevor"
+      },
+      "requested_at": "2026-10-16T11:50:02Z",
+      "started_at": "2026-10-16T11:50:02Z",
+      "finished_at": null,
+      "resolution": null
+    },
+    {
+      "id": "0199e1a0-0000-7000-8000-00000000d002",
+      "server_id": "0199e1a0-0000-7000-8000-000000000a01",
+      "node_id": "0199e1a0-0000-7000-8000-0000000000a1",
+      "action": "server.stop",
+      "state": "failed",
+      "actor": {
+        "type": "local_user",
+        "id": "1000",
+        "name": "trevor"
+      },
+      "error_code": "server_busy",
+      "error_summary": "systemd was busy with this server.",
+      "requested_at": "2026-10-16T11:30:02Z",
+      "started_at": "2026-10-16T11:30:02Z",
+      "finished_at": "2026-10-16T11:30:09.1Z",
+      "resolution": null
+    },
+    {
+      "id": "0199e1a0-0000-7000-8000-00000000d001",
+      "server_id": "0199e1a0-0000-7000-8000-000000000a02",
+      "node_id": "0199e1a0-0000-7000-8000-0000000000a2",
+      "action": "server.start",
+      "state": "uncertain",
+      "actor": {
+        "type": "user",
+        "id": "0199e1a0-0000-7000-8000-00000000c001",
+        "name": "Trevor"
+      },
+      "requested_at": "2026-10-16T10:30:02Z",
+      "started_at": "2026-10-16T10:30:02Z",
+      "finished_at": null,
+      "resolution": {
+        "at": "2026-10-16T11:00:02Z",
+        "outcome": "failed",
+        "by": {
+          "type": "user",
+          "id": "0199e1a0-0000-7000-8000-00000000c001",
+          "name": "Trevor"
+        },
+        "note": "Checked the console;\nit never came up."
+      }
+    }
+  ]
+}

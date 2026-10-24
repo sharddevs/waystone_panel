@@ -1,0 +1,289 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* Layout and components. Colours, sizes and fonts come only from
+   tokens.css (var(--token)); nothing here hard-codes a colour. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--fs);
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-head);
+  font-weight: 600;
+  margin: 0 0 0.5em;
+}
+
+a {
+  color: var(--accent);
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+:focus-visible {
+  outline: var(--focus);
+  outline-offset: var(--focus-offset);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--pad);
+  top: -100px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  z-index: 10;
+}
+.skip-link:focus {
+  top: 8px;
+}
+
+/* Frame (wireframes §0). */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--pad);
+  padding: 10px var(--pad);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.brand {
+  font-family: var(--font-head);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--fg);
+  text-decoration: none;
+}
+.topbar nav {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+}
+.nav-link {
+  color: var(--fg-2);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+.nav-link:hover {
+  color: var(--fg);
+}
+.nav-link.active {
+  /* fg, not accent: accent on accent-soft misses AA in light Stone. */
+  color: var(--fg);
+  background: var(--accent-soft);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--pad);
+}
+.page:focus {
+  outline: none;
+}
+.page-title {
+  font-size: 1.75em;
+}
+.meta {
+  color: var(--fg-3);
+  font-size: 0.88em;
+}
+.loading {
+  padding: var(--pad);
+  color: var(--fg-2);
+}
+
+/* Buttons and fields. */
+.button {
+  font: inherit;
+  font-weight: 500;
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.button.primary {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.button.wide {
+  width: 100%;
+}
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.field label {
+  color: var(--fg-2);
+  font-weight: 500;
+}
+.field input {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.problem {
+  color: var(--bad);
+  margin: 10px 0 0;
+}
+.note {
+  color: var(--fg-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+/* Login (wireframes §1). */
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--pad);
+}
+.login-card {
+  width: min(380px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--pad) * 1.5) var(--pad);
+}
+.brand-big {
+  text-align: center;
+  letter-spacing: 0.16em;
+  font-size: 1.5em;
+  margin-bottom: 4px;
+}
+.tagline {
+  text-align: center;
+  color: var(--fg-2);
+  margin: 0 0 var(--pad);
+}
+
+/* User menu (Q10). */
+.user-menu {
+  position: relative;
+}
+.user-button {
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.user-button:hover,
+.user-button[aria-expanded='true'] {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.user-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 260px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  z-index: 5;
+}
+.panel-heading {
+  font-size: 1em;
+  margin-bottom: 8px;
+}
+.choice {
+  border: 0;
+  padding: 0;
+  margin: 0 0 12px;
+}
+.choice legend {
+  color: var(--fg-3);
+  font-size: 0.88em;
+  margin-bottom: 4px;
+}
+.choice-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 12px;
+  cursor: pointer;
+}
+.choice-option input {
+  accent-color: var(--accent);
+}
+
+/* Status (design tokens, "Status marks"). */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.mark {
+  flex: none;
+}
+.status-words {
+  color: var(--fg);
+}
+.tone-ok {
+  color: var(--ok);
+}
+.tone-warn {
+  color: var(--warn);
+}
+.tone-bad {
+  color: var(--bad);
+}
+.tone-unk {
+  color: var(--unk);
+}
+
+@media (max-width: 600px) {
+  .page-title {
+    font-size: 1.5em;
+  }
+  .page {
+    padding: max(16px, var(--pad));
+  }
+}

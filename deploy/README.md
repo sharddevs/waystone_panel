@@ -69,3 +69,40 @@ years). Waystone never sends `includeSubDomains` or `preload`.
 Don't add `trusted_proxies` to the Caddyfile, and don't put another proxy
 or CDN in front of Caddy: v0.1 supports exactly one proxy, facing browsers
 directly.
+
+## Building the controller with the web UI
+
+The browser UI lives in `web/` (Vite, React, TypeScript). A release
+controller embeds it, so the build needs Node.js once, at build time:
+the version in `web/.nvmrc`, from the official tarball (not the
+distribution's `nodejs` package).
+
+```
+cd web
+npm ci                 # exactly package-lock.json; install scripts never run (.npmrc)
+npm test               # unit tests, including the AA contrast check
+npm run build          # type-checks, then writes internal/webui/dist/
+cd ..
+go build -tags ui -o waystone-controller ./cmd/controller
+```
+
+`internal/webui/dist/` is never committed. `go build` without `-tags ui`
+still works (CI, the Windows cross-build) and gives a controller that
+serves a plain "web UI isn't built" page instead of the UI; its startup
+log says `web UI: not built into this binary`. Built with `-tags ui`, the
+log says `web UI: embedded`, and a build whose `index.html` is missing or
+breaks the Content-Security-Policy refuses to start.
+
+Files under `/assets/` have hashed names and are cached for a year;
+every page is `index.html`, never cached, so a reload of any address in
+the UI works.
+
+### Developing the UI
+
+Build the controller with `-tags devweb` and start it with
+`-dev-ui-dir <dir>`, where `<dir>` holds a web build. It serves the UI
+from disk and reads it again on every request, so
+`npm run build -- --watch --outDir <dir>` in `web/` shows up on the next
+reload, behind the real Caddy, CSP, guard and cookie. The controller's
+user must be able to read `<dir>`. A release build refuses
+`-dev-ui-dir`.

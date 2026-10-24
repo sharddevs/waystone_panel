@@ -1,0 +1,42 @@
+{
+  "id": "0199e1a0-0000-7000-8000-000000000a01",
+  "name": "Survival World",
+  "node": {
+    "id": "0199e1a0-0000-7000-8000-0000000000a1",
+    "name": "homelab-1",
+    "reachability": {
+      "state": "reachable",
+      "last_seen_at": "2026-10-16T11:59:55Z"
+    }
+  },
+  "profile": {
+    "id": "minecraft-java",
+    "version": "26.3"
+  },
+  "runtime": "systemd",
+  "desired_state": "running",
+  "process": {
+    "state": "running",
+    "since": "2026-10-16T11:48:00Z",
+    "observed_at": "2026-10-16T11:59:52Z"
+  },
+  "readiness": {
+    "state": "ready",
+    "since": "2026-10-16T11:49:00Z",
+    "observed_at": "2026-10-16T11:59:52Z"
+  },
+  "actions": [
+    {
+      "action": "start",
+      "allowed": true
+    },
+    {
+      "action": "stop",
+      "allowed": true
+    },
+    {
+      "action": "restart",
+      "allowed": true
+    }
+  ]
+}

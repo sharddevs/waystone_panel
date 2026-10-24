@@ -17,6 +17,7 @@ import (
 	"github.com/sharddevs/waystone_panel/internal/session"
 	"github.com/sharddevs/waystone_panel/internal/store"
 	"github.com/sharddevs/waystone_panel/internal/web"
+	"github.com/sharddevs/waystone_panel/internal/webui"
 )
 
 // C-W1 with the controller's real route set: every browser route the
@@ -33,7 +34,11 @@ func TestWebRoutesCovered(t *testing.T) {
 	// The service has no store: the coverage requests stop at the guard or
 	// the session check.
 	svc := service.New(service.Config{Log: log.New(io.Discard, "", 0)})
-	h, err := web.New(web.Config{Public: o, ProxyUID: 4242, Log: log.New(io.Discard, "", 0), Sessions: sessions}, webRoutes(sessions, svc)...)
+	ui, _, err := uiRoutes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := web.New(web.Config{Public: o, ProxyUID: 4242, Log: log.New(io.Discard, "", 0), Sessions: sessions}, webRoutes(sessions, svc, ui)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,8 +46,8 @@ func TestWebRoutesCovered(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Every route, with the CSRF policy it must have and whether it needs
-	// a session: the four session routes (5a-2) and the browser API (5b,
-	// scope §5). Nothing else may be on web.sock.
+	// a session: the four session routes (5a-2), the browser API (5b,
+	// scope §5) and the UI (5c, §6). Nothing else may be on web.sock.
 	type policy struct {
 		csrf    web.CSRFPolicy
 		session bool
@@ -61,6 +66,8 @@ func TestWebRoutesCovered(t *testing.T) {
 		"GET /api/v1/operations":               {web.CSRFNotApplicable, true},
 		"GET /api/v1/operations/{id}":          {web.CSRFNotApplicable, true},
 		"POST /api/v1/operations/{id}/resolve": {web.CSRFRequired, true},
+		"GET /assets/{file...}":                {web.CSRFNotApplicable, false},
+		"GET /{path...}":                       {web.CSRFNotApplicable, false},
 	}
 	for _, rt := range h.Routes() {
 		key := rt.Method + " " + rt.Pattern
@@ -160,5 +167,26 @@ func TestCheckProxyUID(t *testing.T) {
 		if err := checkProxyUID(c.uid, c.agent, c.self); (err == nil) != c.ok {
 			t.Errorf("checkProxyUID(%d, %d, %d) = %v", c.uid, c.agent, c.self, err)
 		}
+	}
+}
+
+// Q11 and Q13: without -tags ui the UI is the "UI not built" page and the
+// log says so; -dev-ui-dir works only in a devweb build.
+func TestUIRoutes(t *testing.T) {
+	routes, source, err := uiRoutes("")
+	if err != nil || len(routes) != 2 {
+		t.Fatalf("uiRoutes: %d routes, %v", len(routes), err)
+	}
+	if webui.Embedded() == nil && !strings.Contains(source, "not built") {
+		t.Errorf("source %q, want it to say the UI isn't built", source)
+	}
+	_, _, err = uiRoutes(t.TempDir())
+	if devweb {
+		// An empty directory has no index.html: refused, not served.
+		if err == nil {
+			t.Error("devweb: an empty -dev-ui-dir was accepted")
+		}
+	} else if err == nil || !strings.Contains(err.Error(), "devweb") {
+		t.Errorf("release build: -dev-ui-dir gave %v, want a refusal naming devweb", err)
 	}
 }
