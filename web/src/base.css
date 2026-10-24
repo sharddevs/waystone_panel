@@ -279,11 +279,335 @@ code,
   color: var(--unk);
 }
 
+/* Shared page pieces (5d). */
+.page-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--pad);
+}
+.back {
+  margin: 0 0 12px;
+}
+.back a {
+  color: var(--fg-2);
+  text-decoration: none;
+}
+.back a:hover {
+  color: var(--fg);
+}
+.section-title {
+  font-size: 1.1em;
+  margin-top: calc(var(--pad) * 1.25);
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--pad);
+}
+.detail {
+  color: var(--fg-2);
+  margin: 4px 0;
+}
+.empty {
+  color: var(--fg-2);
+}
+.stale {
+  margin-top: 8px;
+}
+.problem-block {
+  margin: 12px 0;
+}
+.problem-block .problem {
+  margin-bottom: 10px;
+}
+.button.small {
+  padding: 2px 10px;
+  font-size: 0.88em;
+}
+a.button {
+  display: inline-block;
+  text-decoration: none;
+}
+.chevron {
+  color: var(--fg-3);
+  justify-self: end;
+}
+.field textarea {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  resize: vertical;
+}
+.first-run {
+  margin: var(--pad) 0 0;
+  text-align: center;
+}
+
+/* Server list (wireframes §2). One grid for the head and the rows. */
+.server-head,
+.server-row {
+  display: grid;
+  grid-template-columns: minmax(14em, 2.2fr) 1.4fr 1.4fr 1fr 1em;
+  gap: 12px;
+  align-items: center;
+  padding: var(--row) 14px;
+}
+.server-head {
+  color: var(--fg-3);
+  font-size: 0.88em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-bottom: 6px;
+}
+.server-list,
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.server-list > li + li,
+.history-list > li + li {
+  border-top: 1px solid var(--border);
+}
+.server-row,
+.history-row,
+.active-line {
+  color: var(--fg);
+  text-decoration: none;
+}
+.server-row:hover,
+.history-row:hover,
+.active-line:hover {
+  background: var(--surface-2);
+}
+.server-list > li:first-child > a,
+.history-list > li:first-child > a {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.server-list > li:last-child > a,
+.history-list > li:last-child > a {
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.cell-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.why {
+  color: var(--fg-2);
+  font-size: 0.88em;
+  padding-left: 24px;
+}
+.cell-name {
+  font-weight: 500;
+}
+.cell-game,
+.cell-node {
+  color: var(--fg-2);
+}
+.placeholder {
+  padding: var(--row) 14px;
+}
+.bone {
+  display: block;
+  height: 1.2em;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+/* Server page (wireframes §3). */
+.server-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--pad);
+  margin-bottom: var(--pad);
+}
+.server-header .page-title {
+  margin-bottom: 2px;
+}
+.server-header .meta {
+  margin: 0;
+}
+.game {
+  color: var(--fg-2);
+  margin: 0.4em 0 0;
+}
+.status-card .summary {
+  font-size: 1.15em;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.status-card .detail,
+.status-card .dims {
+  margin: 4px 0 0 24px;
+}
+.dims {
+  color: var(--fg-2);
+}
+.card-foot {
+  margin: 8px 0 0 24px;
+}
+.raw {
+  margin: 8px 0 0 24px;
+}
+.raw summary {
+  cursor: pointer;
+  color: var(--accent);
+  width: max-content;
+}
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 10px 0 0;
+}
+.facts dt {
+  color: var(--fg-3);
+}
+.facts dd {
+  margin: 0;
+}
+.callout {
+  margin-top: var(--pad);
+  padding: 12px var(--pad);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--unk);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.callout p {
+  margin: 0 0 8px;
+}
+.callout-title {
+  font-weight: 600;
+}
+.actions {
+  margin-top: var(--pad);
+}
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.reason {
+  margin: 8px 0 0;
+}
+.active-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--pad);
+  padding: 10px 14px;
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+.history-row {
+  display: grid;
+  grid-template-columns: 1.3fr 1.2fr 1fr 0.8fr 1.6fr 1em;
+  gap: 12px;
+  align-items: center;
+  padding: var(--row) 14px;
+}
+.cell-time,
+.cell-actor,
+.cell-outcome {
+  color: var(--fg-2);
+}
+.cell-outcome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history .button {
+  margin-top: 12px;
+}
+
+/* Operation details (wireframes §4). */
+.op-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-bottom: 4px;
+}
+.op-state {
+  font-size: 0.6em;
+  font-weight: 500;
+}
+.timeline {
+  margin-top: var(--pad);
+}
+.ids {
+  margin-top: calc(var(--pad) * 1.5);
+  font-size: 0.88em;
+}
+.resolve {
+  margin-top: var(--pad);
+}
+.resolve .section-title {
+  margin-top: 0;
+}
+
 @media (max-width: 600px) {
   .page-title {
     font-size: 1.5em;
   }
   .page {
     padding: max(16px, var(--pad));
+  }
+  /* Phone width: one card per server, one column on the server page. */
+  .server-head {
+    display: none;
+  }
+  .server-row {
+    grid-template-columns: 1fr 1em;
+    grid-template-areas: 'name chev' 'status chev' 'game chev' 'node chev';
+    gap: 4px;
+  }
+  .cell-name {
+    grid-area: name;
+  }
+  .cell-status {
+    grid-area: status;
+  }
+  .cell-game {
+    grid-area: game;
+    font-size: 0.88em;
+  }
+  .cell-node {
+    grid-area: node;
+    font-size: 0.88em;
+  }
+  .server-row .chevron {
+    grid-area: chev;
+  }
+  .server-header {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .status-card .detail,
+  .status-card .dims,
+  .card-foot,
+  .raw {
+    margin-left: 0;
+  }
+  .action-buttons .button {
+    flex: 1 1 100%;
+  }
+  .history-row {
+    grid-template-columns: 1fr 1fr auto 1em;
+  }
+  .cell-actor,
+  .cell-outcome {
+    display: none;
   }
 }

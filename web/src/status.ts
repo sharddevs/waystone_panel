@@ -141,3 +141,32 @@ export function reasonText(reason: string | undefined): string {
       return 'Unavailable right now.'
   }
 }
+
+// dimensionsLine is the three dimensions in plain words, one line under
+// the summary (wireframes §3): "Node reachable · Process running for
+// 12 min · Game ready". Durations come only from real timestamps.
+export function dimensionsLine(s: Server, now: Date): string {
+  const parts: string[] = []
+  parts.push(s.node.reachability.state === 'reachable' ? 'Node reachable' : 'Node unreachable')
+  const p = s.process
+  if (p.state === 'unknown') parts.push('Process state unknown')
+  else {
+    const forHow = p.state === 'running' ? ago(p.since, now) : undefined
+    parts.push(forHow === undefined ? `Process ${p.state}` : `Process running for ${forHow}`)
+  }
+  switch (s.readiness.state) {
+    case 'ready':
+      parts.push('Game ready')
+      break
+    case 'not_ready':
+      parts.push('Game not ready')
+      break
+    case 'unknown':
+      parts.push('Game readiness unknown')
+      break
+    case 'not_supported':
+      parts.push('No readiness check')
+      break
+  }
+  return parts.join(' · ')
+}

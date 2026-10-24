@@ -102,6 +102,9 @@ export function Login() {
           )}
           {problem?.kind === 'unavailable' && <p className="problem">Waystone couldn't check your sign-in. Try again.</p>}
         </div>
+        <p className="meta first-run">
+          No account yet? Accounts are made on the server. The first one: <code>waystone-controller user bootstrap</code>.
+        </p>
       </div>
     </main>
   )

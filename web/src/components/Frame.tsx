@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import type { ReactNode } from 'react'
-import { Link, NavLink } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { UserMenu } from './UserMenu'
 
 // Frame is every screen after login (wireframes §0): the top bar with
 // the one nav item of v0.1 and the user menu, then the page.
 export function Frame({ children }: { children: ReactNode }) {
+  // Servers stays the current section on a server's page and on an
+  // operation's page: both are reached from it.
+  const { pathname } = useLocation()
+  const inServers = pathname === '/' || pathname.startsWith('/servers/') || pathname.startsWith('/operations/')
   return (
     <>
       <a className="skip-link" href="#main">
@@ -17,9 +21,9 @@ export function Frame({ children }: { children: ReactNode }) {
           WAYSTONE
         </Link>
         <nav aria-label="Main">
-          <NavLink to="/" end className="nav-link">
+          <Link to="/" className={inServers ? 'nav-link active' : 'nav-link'} aria-current={inServers ? 'page' : undefined}>
             Servers
-          </NavLink>
+          </Link>
         </nav>
         <UserMenu />
       </header>

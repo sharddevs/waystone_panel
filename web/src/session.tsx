@@ -113,3 +113,10 @@ export function SessionProvider({ client = defaultClient, children }: { client?:
 
   return <SessionContext.Provider value={api}>{children}</SessionContext.Provider>
 }
+
+// useSignedIn is for pages behind RequireSession: the session is there.
+export function useSignedIn(): { session: Session; client: Client; expired(): void } {
+  const s = useSession()
+  if (s.state.status !== 'signed-in') throw new Error('useSignedIn outside RequireSession')
+  return { session: s.state.session, client: s.client, expired: s.expired }
+}

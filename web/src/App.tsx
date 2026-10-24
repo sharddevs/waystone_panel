@@ -4,7 +4,10 @@ import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router'
 import { Frame } from './components/Frame'
 import { Login } from './pages/Login'
-import { NotFound, Placeholder } from './pages/Placeholder'
+import { NotFound } from './pages/NotFound'
+import { OperationPageRoute } from './pages/OperationPage'
+import { ServerList } from './pages/ServerList'
+import { ServerPageRoute } from './pages/ServerPage'
 import { useSession } from './session'
 
 // RequireSession shows its page only to a signed-in user. Anyone else
@@ -38,9 +41,9 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/" element={<RequireSession><Placeholder title="Servers" /></RequireSession>} />
-      <Route path="/servers/:id" element={<RequireSession><Placeholder title="Server" /></RequireSession>} />
-      <Route path="/operations/:id" element={<RequireSession><Placeholder title="Operation" /></RequireSession>} />
+      <Route path="/" element={<RequireSession><ServerList /></RequireSession>} />
+      <Route path="/servers/:id" element={<RequireSession><ServerPageRoute /></RequireSession>} />
+      <Route path="/operations/:id" element={<RequireSession><OperationPageRoute /></RequireSession>} />
       <Route path="*" element={<RequireSession><NotFound /></RequireSession>} />
     </Routes>
   )

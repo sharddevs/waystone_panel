@@ -52,6 +52,14 @@ const pairs: [string, string][] = [
   ['accent-fg', 'accent'],
 ]
 
+// Status marks are graphics, next to their words: WCAG 1.4.11 asks 3:1.
+// These are the backgrounds a mark sits on beyond bg and surface: a
+// hovered row (surface-2) and the active operation line (accent-soft).
+const marks: [string, string][] = [
+  ...['ok', 'warn', 'bad', 'unk'].map((t): [string, string] => [t, 'surface-2']),
+  ['warn', 'accent-soft'],
+]
+
 describe.each(['stone', 'slate'])('%s', (theme) => {
   const colours = themeBlock(theme)
 
@@ -65,6 +73,12 @@ describe.each(['stone', 'slate'])('%s', (theme) => {
       if (!a || !b) throw new Error(`missing ${fg} or ${bg}`)
       const ratio = contrast(a[mode], b[mode])
       expect(ratio, `${fg} on ${bg}: ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5)
+    })
+    it.each(marks)('the %s mark on %s passes 3:1', (fg, bg) => {
+      const [a, b] = [colours[fg], colours[bg]]
+      if (!a || !b) throw new Error(`missing ${fg} or ${bg}`)
+      const ratio = contrast(a[mode], b[mode])
+      expect(ratio, `${fg} on ${bg}: ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(3)
     })
   })
 })
