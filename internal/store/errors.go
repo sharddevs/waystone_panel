@@ -19,6 +19,8 @@ var (
 	// ErrAmbiguousMembership: the actor belongs to more than one tenant.
 	// Stage 4 refuses that until the UI can choose an organization (I6).
 	ErrAmbiguousMembership = errors.New("actor has more than one membership")
+	// ErrNotAdmin: the transaction's actor isn't an admin of its tenant.
+	ErrNotAdmin = errors.New("actor is not an admin")
 	// ErrInvalidInput: a request field is malformed (bad UUID, unknown
 	// action, bad idempotency key, note too long, ...).
 	ErrInvalidInput = errors.New("invalid input")

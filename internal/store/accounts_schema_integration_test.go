@@ -95,7 +95,8 @@ func TestOnlyKnownSecurityDefinerFunctions(t *testing.T) {
 			t.Errorf("%s: config %q has no fixed search_path", name, config)
 		}
 	}
-	want := []string{"login_lookup", "purge_sessions", "recover_running_operations", "session_lookup"}
+	// 00008 adds the agent link's four (6a-1).
+	want := []string{"agent_node_by_id", "agent_node_by_pin", "enroll_node", "login_lookup", "purge_sessions", "recover_running_operations", "revoke_node", "session_lookup"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("SECURITY DEFINER functions %v, want %v", names, want)
 	}

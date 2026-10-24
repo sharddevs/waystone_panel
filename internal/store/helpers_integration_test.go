@@ -52,9 +52,10 @@ var (
 	nodeActA = Actor{Type: ActorNode, ID: nodeA, Name: "node a"}         // node member of A
 )
 
-// The tables the migrations create (users and sessions since 5a-1).
+// The tables the migrations create (users and sessions since 5a-1,
+// node_enrollments since 6a-1).
 // Each one must have tenant_id and forced RLS.
-var wantTables = []string{"tenants", "memberships", "nodes", "servers", "operations", "idempotency_keys", "audit_events", "users", "sessions"}
+var wantTables = []string{"tenants", "memberships", "nodes", "servers", "operations", "idempotency_keys", "audit_events", "users", "sessions", "node_enrollments"}
 
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {

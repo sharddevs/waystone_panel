@@ -185,6 +185,7 @@ func TestMigration00002(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
+		"nodes.agent_version", "nodes.capabilities", // 00008
 		"nodes.last_seen_at", "nodes.session_epoch",
 		"servers.agent_reported_at", "servers.desired_state", "servers.process_observed_at",
 		"servers.process_since", "servers.process_state",
